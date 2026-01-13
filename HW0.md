@@ -34,7 +34,7 @@ Part 1: Take a Look at `Cartpole` Rl Agent
 ![cartpole](https://github.com/user-attachments/assets/69bcf6ea-04c3-4bf1-ace1-a2b8c03ac8ff)
 
 ### Train the `Cartpole` RL Agent
-According to the [Training with an RL Agent Tutorial](https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/run_rl_training.html#training-with-an-rl-agent), the `Cartpole` RL Agent can be headlessly train with off-screen rendering by running the following command in the `IsaacLab` directory
+According to the [Training with an RL Agent Tutorial](https://isaac-sim.github.io/IsaacLab/v2.1.0/source/tutorials/03_envs/run_rl_training.html#training-with-an-rl-agent), the `Cartpole` RL Agent can be headlessly train with off-screen rendering by running the following command in the `IsaacLab` directory
 
     python scripts/reinforcement_learning/sb3/train.py --task Isaac-Cartpole-v0 --num_envs 64 --headless 
 
