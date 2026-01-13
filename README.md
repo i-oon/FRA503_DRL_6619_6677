@@ -46,6 +46,15 @@ Follow the Installing and Verifying steps [[link](https://isaac-sim.github.io/Is
 
 Follow the Installing and Verifying steps [[link](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/binaries_installation.html)] -->
 
+⚠️ **Important Notice**
+
+IsaacLab **must be installed from the `release/2.1.0` branch** to ensure compatibility.
+Installing from other branches may lead to errors or unexpected behavior.
+
+```bash
+git clone -b release/2.1.0 https://github.com/isaac-sim/IsaacLab.git
+```
+
 ### Verifying the Isaac Lab installation
 
 ```
