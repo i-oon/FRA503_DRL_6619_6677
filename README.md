@@ -13,7 +13,7 @@ curl -O https://repo.anaconda.com/miniconda/Miniconda3-py310_24.11.1-0-Linux-x86
 Install Miniconda
 
 ```
-bash ~/Miniconda3-latest-Linux-x86_64.sh
+bash ~/Miniconda3-py310_24.11.1-0-Linux-x86_64.sh
 ```
 
 The installer finishes and displays, “Thank you for installing Miniconda3!”
