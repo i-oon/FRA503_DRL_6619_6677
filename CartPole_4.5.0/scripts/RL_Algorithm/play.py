@@ -102,8 +102,14 @@ def main():
     task_name = str(args_cli.task).split('-')[0]  # Stabilize, SwingUp
     Algorithm_name = "Q_Learning"  
     episode = 0
-    q_value_file = "Q_Learning_100_5_10.0_10_100.json"
-    full_path = os.path.join(f"q_value/{task_name}", Algorithm_name)
+    # Use the 400-episode brain!
+    q_value_file = "Q_Learning_400_5_10.0_10_10.json"  
+    
+    # Keep the absolute path we set up earlier
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+    full_path = os.path.join(project_root, f"q_value/{task_name}", Algorithm_name)
+    
+    # Load it!
     agent.load_q_value(full_path, q_value_file)
 
     # reset environment
