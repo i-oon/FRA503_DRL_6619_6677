@@ -4,7 +4,8 @@ from enum import Enum
 import os
 import json
 import torch
-
+import numpy as np
+import ast
 
 class ControlType(Enum):
     """
@@ -14,6 +15,7 @@ class ControlType(Enum):
     TEMPORAL_DIFFERENCE = 2
     Q_LEARNING = 3
     DOUBLE_Q_LEARNING = 4
+    SARSA = 5
 
 
 class BaseAlgorithm():
@@ -47,29 +49,41 @@ class BaseAlgorithm():
         final_epsilon: float,
         discount_factor: float,
     ):
-        self.control_type = control_type
-        self.lr = learning_rate
-        self.discount_factor = discount_factor
-        self.epsilon = initial_epsilon
+
+        # Hyperparameters
+        self.control_type = control_type # enum 1, 2, 3, 4
+        self.lr = learning_rate    # step size
+        self.discount_factor = discount_factor # gramma
+        self.epsilon = initial_epsilon 
         self.epsilon_decay = epsilon_decay
         self.final_epsilon = final_epsilon
-
+        self.initial_epsilon = initial_epsilon 
+        # Action Space Configuration
         self.num_of_action = num_of_action
         self.action_range = action_range
+
+        # State Discretization Configuration [x_cart, theta_pole, x_dot, theta_dot]
         self.discretize_state_weight = discretize_state_weight
 
+        # Q Table Storage Q(s, :) stored as vector
         self.q_values = defaultdict(lambda: np.zeros(self.num_of_action))
+
+        # Counting visits for Monte Carlo method
         self.n_values = defaultdict(lambda: np.zeros(self.num_of_action))
+
         self.training_error = []
 
+        # Monte Carlo Buffers
         if self.control_type == ControlType.MONTE_CARLO:
             self.obs_hist = []
             self.action_hist = []
             self.reward_hist = []
+        # Double Q-Learning Storage
         elif self.control_type == ControlType.DOUBLE_Q_LEARNING:
             self.qa_values = defaultdict(lambda: np.zeros(self.num_of_action))
             self.qb_values = defaultdict(lambda: np.zeros(self.num_of_action))
 
+    # Convert continuous observation → finite tuple key.
     def discretize_state(self, obs: dict):
         """
         Discretize the observation state.
@@ -81,10 +95,17 @@ class BaseAlgorithm():
             Tuple[pose_cart:int, pose_pole:int, vel_cart:int, vel_pole:int]: Discretized state.
         """
 
-        # ========= put your code here =========#
-        pass
-        # ======================================#
+        state = obs["policy"]
+        if isinstance(state, torch.Tensor):
+            state = state.detach().cpu().numpy()
+        state = np.squeeze(state)  # ensure shape (4,)
+        # Apply scaling for discretization
+        scaled = state * np.array(self.discretize_state_weight)
+        # Convert to integer bins
+        discretized = tuple(int(np.round(val)) for val in scaled)
+        return tuple(discretized)
 
+    # Epsilon-greedy action selection
     def get_discretize_action(self, obs_dis) -> int:
         """
         Select an action using an epsilon-greedy policy.
@@ -95,10 +116,15 @@ class BaseAlgorithm():
         Returns:
             int: Chosen discrete action index.
         """
-        # ========= put your code here =========#
-        pass
-        # ======================================#
+        if np.random.rand() < self.epsilon:
+            return np.random.randint(self.num_of_action)
+        if self.control_type == ControlType.DOUBLE_Q_LEARNING:
+            q_sum = self.qa_values[obs_dis] + self.qb_values[obs_dis]
+            return int(np.argmax(q_sum))
+        else:
+            return int(np.argmax(self.q_values[obs_dis]))
     
+    # Convert discrete index → continuous force tensor.
     def mapping_action(self, action):
         """
         Maps a discrete action in range [0, n] to a continuous value in [action_min, action_max].
@@ -110,9 +136,12 @@ class BaseAlgorithm():
         Returns:
             torch.Tensor: Scaled action tensor.
         """
-        # ========= put your code here =========#
-        pass
-        # ======================================#s
+        action_min, action_max = self.action_range
+        if self.num_of_action == 1:
+            scaled_value = action_min
+        else:
+            scaled_value = action_min + (action / (self.num_of_action - 1)) * (action_max - action_min)
+        return torch.tensor([[scaled_value]], dtype=torch.float32)
 
     def get_action(self, obs) -> torch.tensor:
         """
@@ -133,6 +162,7 @@ class BaseAlgorithm():
         """
         Decay epsilon value to reduce exploration over time.
         """
+        self.epsilon = max(self.final_epsilon, self.epsilon * self.epsilon_decay)
 
     def save_q_value(self, path, filename):
         """
@@ -142,61 +172,54 @@ class BaseAlgorithm():
             path (str): Path to save the model.
             filename (str): Name of the file.
         """
-        # Convert tuple keys to strings
-        try:
-            q_values_str_keys = {str(k): v.tolist() for k, v in self.q_values.items()}
-        except:
-            q_values_str_keys = {str(k): v for k, v in self.q_values.items()}
-        if self.control_type == ControlType.MONTE_CARLO:
-            try:
-                n_values_str_keys = {str(k): v.tolist() for k, v in self.n_values.items()}
-            except:
-                n_values_str_keys = {str(k): v for k, v in self.n_values.items()}
+        # Convert tuple keys to strings and numpy arrays to lists
+        q_values_str_keys = {str(k): (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in self.q_values.items()}
         
-        # Save model parameters to a JSON file
+        model_params = {'q_values': q_values_str_keys}
+        
+        # Add n_values if it's Monte Carlo
         if self.control_type == ControlType.MONTE_CARLO:
-            model_params = {
-                'q_values': q_values_str_keys,
-                'n_values': n_values_str_keys
-            }
-        else:
-            model_params = {
-                'q_values': q_values_str_keys,
-            }
+            n_values_str_keys = {str(k): (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in self.n_values.items()}
+            model_params['n_values'] = n_values_str_keys
+
+        # --- THE FIX IS HERE ---
+        # Ensure the target directory exists before trying to save a file inside it
+        os.makedirs(path, exist_ok=True)
+        # -----------------------
+
         full_path = os.path.join(path, filename)
+        
         with open(full_path, 'w') as f:
-            json.dump(model_params, f)
+            json.dump(model_params, f, indent=4) # indent=4 makes the JSON readable for humans!
 
             
     def load_q_value(self, path, filename):
         """
         Load model parameters from a JSON file.
-
-        Args:
-            path (str): Path where the model is stored.
-            filename (str): Name of the file.
-
-        Returns:
-            dict: The loaded Q-values.
         """
         full_path = os.path.join(path, filename)        
         with open(full_path, 'r') as file:
             data = json.load(file)
+            
+            # Load Q-Values
             data_q_values = data['q_values']
-            for state, action_values in data_q_values.items():
-                state = state.replace('(', '')
-                state = state.replace(')', '')
-                tuple_state = tuple(map(float, state.split(', ')))
-                self.q_values[tuple_state] = action_values.copy()
+            for state_str, action_values in data_q_values.items():
+                # Safely parse the string tuple back into actual integers
+                tuple_state = tuple(int(x) for x in ast.literal_eval(state_str))
+                
+                # IMPORTANT: Convert the loaded list back to a numpy array
+                self.q_values[tuple_state] = np.array(action_values)
+                
                 if self.control_type == ControlType.DOUBLE_Q_LEARNING:
-                    self.qa_values[tuple_state] = action_values.copy()
-                    self.qb_values[tuple_state] = action_values.copy()
-            if self.control_type == ControlType.MONTE_CARLO:
+                    self.qa_values[tuple_state] = np.array(action_values)
+                    self.qb_values[tuple_state] = np.array(action_values)
+                    
+            # Load N-Values for Monte Carlo
+            if self.control_type == ControlType.MONTE_CARLO and 'n_values' in data:
                 data_n_values = data['n_values']
-                for state, n_values in data_n_values.items():
-                    state = state.replace('(', '')
-                    state = state.replace(')', '')
-                    tuple_state = tuple(map(float, state.split(', ')))
-                    self.n_values[tuple_state] = n_values.copy()
+                for state_str, n_values in data_n_values.items():
+                    tuple_state = tuple(int(x) for x in ast.literal_eval(state_str))
+                    self.n_values[tuple_state] = np.array(n_values)
+                    
             return self.q_values
 

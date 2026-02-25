@@ -78,15 +78,15 @@ def main():
     # ==================================================================== #
     # ========================= Can be modified ========================== #
 
-    num_of_action = None
-    action_range = [None, None]  # [min, max]
-    discretize_state_weight = [None, None, None, None]  # [pose_cart:int, pose_pole:int, vel_cart:int, vel_pole:int]
-    learning_rate = None
-    n_episodes = None
-    start_epsilon = None
-    epsilon_decay = None  # reduce the exploration over time
-    final_epsilon = None
-    discount = None
+    num_of_action = 5.0
+    action_range = [-10.0, 10.0]  # [min, max]
+    discretize_state_weight = [10.0, 100.0, 10.0, 100.0]  # [pose_cart:int, pose_pole:int, vel_cart:int, vel_pole:int]
+    learning_rate = 0.1
+    n_episodes = 5
+    start_epsilon = 1.0
+    epsilon_decay = 0.995  # reduce the exploration over time
+    final_epsilon = 0.01
+    discount = 0.95
 
     agent = Q_Learning(
         num_of_action=num_of_action,
@@ -102,7 +102,7 @@ def main():
     task_name = str(args_cli.task).split('-')[0]  # Stabilize, SwingUp
     Algorithm_name = "Q_Learning"  
     episode = 0
-    q_value_file = f"{Algorithm_name}_{episode}_{num_of_action}_{action_range[1]}_{discretize_state_weight[0]}_{discretize_state_weight[1]}.json"
+    q_value_file = "Q_Learning_100_5_10.0_10_100.json"
     full_path = os.path.join(f"q_value/{task_name}", Algorithm_name)
     agent.load_q_value(full_path, q_value_file)
 

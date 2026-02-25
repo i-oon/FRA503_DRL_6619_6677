@@ -10,7 +10,11 @@ from isaaclab.app import AppLauncher
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
+from RL_Algorithm.RL_base import ControlType
 from RL_Algorithm.Algorithm.Q_Learning import Q_Learning
+from RL_Algorithm.Algorithm.SARSA import SARSA
+# from RL_Algorithm.Algorithm.Double_Q_Learning import Double_Q_Learning
+# from RL_Algorithm.Algorithm.Monte_Carlo import Monte_Carlo
 from tqdm import tqdm
 
 # add argparse arguments
@@ -102,15 +106,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # ========================= Can be modified ========================== #
 
     # hyperparameters
-    num_of_action = None
-    action_range = [None, None]  # [min, max]
-    discretize_state_weight = [None, None, None, None]  # [pose_cart:int, pose_pole:int, vel_cart:int, vel_pole:int]
-    learning_rate = None
-    n_episodes = None
-    start_epsilon = None
-    epsilon_decay = None  # reduce the exploration over time
-    final_epsilon = None
-    discount = None
+    num_of_action = 5
+    action_range = [-10.0, 10.0]  # [min, max]
+    discretize_state_weight = [10, 10, 10, 10]  # [pose_cart:int, pose_pole:int, vel_cart:int, vel_pole:int]
+    learning_rate = 0.1
+    n_episodes = 500
+    start_epsilon = 1.0
+    epsilon_decay = 0.995  # reduce the exploration over time
+    final_epsilon = 0.01
+    discount = 0.99
 
     task_name = str(args_cli.task).split('-')[0]  # Stabilize, SwingUp
     Algorithm_name = "Q_Learning"
@@ -139,36 +143,84 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 done = False
                 cumulative_reward = 0
 
-                while not done:
-                    # agent stepping
-                    action, action_idx = agent.get_action(obs)
+                # 1. Get the INITIAL action before the loop starts
+                action_tensor, action_idx = agent.get_action(obs)
 
-                    # env stepping
-                    next_obs, reward, terminated, truncated, _ = env.step(action)
+                while not done:
+                    # 2. Step the environment
+                    next_obs, reward, terminated, truncated, _ = env.step(action_tensor)
 
                     reward_value = reward.item()
                     terminated_value = terminated.item() 
                     cumulative_reward += reward_value
 
-                    agent.update(
-                        #== put your code here ==#
-                    )
+                    # ========================================================== #
+                    # ================= ALGORITHM LOGIC SWITCH ================= #
+                    
+                    if agent.control_type == ControlType.SARSA:
+                        # SARSA: Pick next action now, use it to update, and save it for the next loop
+                        next_action_tensor, next_action_idx = agent.get_action(next_obs)
+                        agent.update(
+                            obs=obs,
+                            action=action_idx,
+                            reward=reward_value,
+                            terminated=terminated_value,
+                            next_obs=next_obs,
+                            next_action=next_action_idx
+                        )
+                        # Carry the action forward to the next step
+                        action_tensor = next_action_tensor
+                        action_idx = next_action_idx
 
+                    elif agent.control_type in [ControlType.Q_LEARNING, ControlType.DOUBLE_Q_LEARNING]:
+                        # Q-Learning / Double Q: Update based on max future Q, then pick a new action
+                        agent.update(
+                            obs=obs,
+                            action=action_idx,
+                            reward=reward_value,
+                            terminated=terminated_value,
+                            next_obs=next_obs
+                        )
+                        # Pick a fresh action for the next step
+                        action_tensor, action_idx = agent.get_action(next_obs)
+
+                    elif agent.control_type == ControlType.MONTE_CARLO:
+                        # Monte Carlo: Just store the history, do not update yet
+                        agent.obs_hist.append(obs)
+                        agent.action_hist.append(action_idx)
+                        agent.reward_hist.append(reward_value)
+                        
+                        # Pick a fresh action for the next step
+                        action_tensor, action_idx = agent.get_action(next_obs)
+
+                    # ========================================================== #
+
+                    # 3. Transition to the next state
                     done = terminated or truncated
                     obs = next_obs
                 
+                # ================= END OF EPISODE UPDATES ===================== #
+                
+                # If Monte Carlo, we process the history arrays and update the Q-table NOW
+                if agent.control_type == ControlType.MONTE_CARLO:
+                    agent.update()
+
+                # Decay epsilon at the end of every episode for all algorithms
+                agent.decay_epsilon()
+                
+                # ============================================================== #
+
+                # Logging and Saving
                 sum_reward += cumulative_reward
                 if episode % 100 == 0:
                     print("avg_score: ", sum_reward / 100.0)
                     sum_reward = 0
-                    print(agent.epsilon)
+                    print(f"Epsilon: {agent.epsilon}")
 
-                    # Save Q-Learning agent
+                    # Save agent
                     q_value_file = f"{Algorithm_name}_{episode}_{num_of_action}_{action_range[1]}_{discretize_state_weight[0]}_{discretize_state_weight[1]}.json"
                     full_path = os.path.join(f"q_value/{task_name}", Algorithm_name)
                     agent.save_q_value(full_path, q_value_file)
-
-                agent.decay_epsilon()
              
         if args_cli.video:
             timestep += 1
