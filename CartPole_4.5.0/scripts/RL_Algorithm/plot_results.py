@@ -268,6 +268,180 @@ def plot_algorithm_comparison(data_dict, task, save_dir):
     print(f"✓ Saved comparison plot: {output_path}")
     plt.close()
 
+def compare_algorithm_variance(task, save_dir):
+    """Compare variance across all algorithms."""
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import numpy as np
+    
+    algorithms = ["Q_Learning", "SARSA", "Double_Q_Learning", "Monte_Carlo"]
+    colors = ['steelblue', 'coral', 'mediumseagreen', 'orange']
+    
+    stats_list = []
+    
+    # Collect statistics for each algorithm
+    for algo in algorithms:
+        csv_path = f"logs/{task}/{algo}/training_metrics.csv"
+        if not os.path.exists(csv_path):
+            print(f"⚠️  Skipping {algo}: CSV not found")
+            continue
+        
+        df = pd.read_csv(csv_path)
+        
+        # Late training variance (last 500 episodes)
+        late = df.tail(500)
+        stats_list.append({
+            'algorithm': algo,
+            'mean': late['reward'].mean(),
+            'std': late['reward'].std(),
+            'var': late['reward'].var(),
+            'cv': late['reward'].std() / abs(late['reward'].mean())
+        })
+    
+    # Create comparison plots
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    # Extract data
+    algos = [s['algorithm'] for s in stats_list]
+    means = [s['mean'] for s in stats_list]
+    stds = [s['std'] for s in stats_list]
+    vars = [s['var'] for s in stats_list]
+    cvs = [s['cv'] for s in stats_list]
+    
+    # Plot 1: Mean Reward
+    ax1 = axes[0, 0]
+    bars1 = ax1.bar(algos, means, color=colors[:len(algos)], alpha=0.7, edgecolor='black')
+    ax1.set_ylabel('Mean Reward', fontsize=11)
+    ax1.set_title('Mean Reward (Last 500 Episodes)', fontsize=12, fontweight='bold')
+    ax1.grid(True, alpha=0.3, axis='y')
+    # Add value labels
+    for bar, val in zip(bars1, means):
+        height = bar.get_height()
+        ax1.text(bar.get_x() + bar.get_width()/2., height,
+                f'{val:.1f}', ha='center', va='bottom', fontsize=10)
+    
+    # Plot 2: Standard Deviation
+    ax2 = axes[0, 1]
+    bars2 = ax2.bar(algos, stds, color=colors[:len(algos)], alpha=0.7, edgecolor='black')
+    ax2.set_ylabel('Standard Deviation', fontsize=11)
+    ax2.set_title('Reward Std Dev (Last 500 Episodes)', fontsize=12, fontweight='bold')
+    ax2.grid(True, alpha=0.3, axis='y')
+    # Add value labels
+    for bar, val in zip(bars2, stds):
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., height,
+                f'{val:.1f}', ha='center', va='bottom', fontsize=10)
+    
+    # Plot 3: Variance
+    ax3 = axes[1, 0]
+    bars3 = ax3.bar(algos, vars, color=colors[:len(algos)], alpha=0.7, edgecolor='black')
+    ax3.set_ylabel('Variance', fontsize=11)
+    ax3.set_title('Reward Variance (Last 500 Episodes)', fontsize=12, fontweight='bold')
+    ax3.grid(True, alpha=0.3, axis='y')
+    # Add value labels
+    for bar, val in zip(bars3, vars):
+        height = bar.get_height()
+        ax3.text(bar.get_x() + bar.get_width()/2., height,
+                f'{val:.0f}', ha='center', va='bottom', fontsize=10)
+    
+    # Plot 4: Coefficient of Variation (Normalized)
+    ax4 = axes[1, 1]
+    bars4 = ax4.bar(algos, cvs, color=colors[:len(algos)], alpha=0.7, edgecolor='black')
+    ax4.set_ylabel('Coefficient of Variation', fontsize=11)
+    ax4.set_title('Normalized Variance (CV = σ/μ)', fontsize=12, fontweight='bold')
+    ax4.grid(True, alpha=0.3, axis='y')
+    ax4.axhline(y=1.0, color='red', linestyle='--', alpha=0.5, linewidth=2)
+    # Add value labels
+    for bar, val in zip(bars4, cvs):
+        height = bar.get_height()
+        ax4.text(bar.get_x() + bar.get_width()/2., height,
+                f'{val:.3f}', ha='center', va='bottom', fontsize=10)
+    
+    plt.tight_layout()
+    
+    # Save
+    output_path = os.path.join(save_dir, f'{task}_algorithm_variance_comparison.png')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    print(f"\n✅ Saved variance comparison: {output_path}")
+    plt.close()
+    
+    # Print comparison table
+    print(f"\n{'='*80}")
+    print(f"Variance Comparison: All Algorithms")
+    print(f"{'='*80}")
+    print(f"{'Algorithm':<20} {'Mean':<10} {'Std Dev':<10} {'Variance':<12} {'CV':<10}")
+    print(f"{'-'*80}")
+    for s in stats_list:
+        print(f"{s['algorithm']:<20} {s['mean']:<10.2f} {s['std']:<10.2f} "
+              f"{s['var']:<12.1f} {s['cv']:<10.4f}")
+    print(f"{'='*80}")
+    
+    # Highlight MC vs TD difference
+    mc_stats = next((s for s in stats_list if 'Monte_Carlo' in s['algorithm']), None)
+    td_stats = [s for s in stats_list if 'Monte_Carlo' not in s['algorithm']]
+    
+    if mc_stats and td_stats:
+        avg_td_var = np.mean([s['var'] for s in td_stats])
+        avg_td_cv = np.mean([s['cv'] for s in td_stats])
+        
+        print(f"\n📊 Key Findings:")
+        print(f"  Monte Carlo Variance: {mc_stats['var']:.1f}")
+        print(f"  TD Methods Avg Variance: {avg_td_var:.1f}")
+        print(f"  Variance Ratio (MC/TD): {mc_stats['var']/avg_td_var:.2f}x")
+        print(f"\n  Monte Carlo CV: {mc_stats['cv']:.4f}")
+        print(f"  TD Methods Avg CV: {avg_td_cv:.4f}")
+        print(f"  CV Ratio (MC/TD): {mc_stats['cv']/avg_td_cv:.2f}x")
+        
+        if mc_stats['var'] > avg_td_var * 1.5:
+            print(f"\n✅ Monte Carlo shows {mc_stats['var']/avg_td_var:.1f}x HIGHER variance than TD methods!")
+            print(f"   This confirms theoretical prediction: MC has high variance, TD has low variance.")
+        else:
+            print(f"\n⚠️  Variance difference smaller than expected. Possible reasons:")
+            print(f"   - Environment stochasticity dominates")
+            print(f"   - Episode lengths similar")
+            print(f"   - Need more episodes for convergence")
+
+def plot_episode_variability(task, save_dir):
+    """Plot reward variability over consecutive episodes."""
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import numpy as np
+    
+    algorithms = ["Q_Learning", "SARSA", "Double_Q_Learning", "Monte_Carlo"]
+    colors = {'Q_Learning': 'steelblue', 'SARSA': 'coral', 
+              'Double_Q_Learning': 'mediumseagreen', 'Monte_Carlo': 'orange'}
+    
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
+    for algo in algorithms:
+        csv_path = f"logs/{task}/{algo}/training_metrics.csv"
+        if not os.path.exists(csv_path):
+            continue
+        
+        df = pd.read_csv(csv_path)
+        
+        # Calculate consecutive differences (how much reward changes episode-to-episode)
+        df['reward_diff'] = df['reward'].diff().abs()
+        
+        # Plot rolling average of absolute differences
+        window = 100
+        df['reward_diff_ma'] = df['reward_diff'].rolling(window=window).mean()
+        
+        ax.plot(df['episode'], df['reward_diff_ma'], 
+               label=algo, linewidth=2, alpha=0.8, color=colors[algo])
+    
+    ax.set_xlabel('Episode', fontsize=12)
+    ax.set_ylabel('Average |Reward Change| per Episode', fontsize=12)
+    ax.set_title('Episode-to-Episode Reward Variability (100-ep MA)', 
+                fontsize=14, fontweight='bold')
+    ax.legend(fontsize=11, loc='best')
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    output_path = os.path.join(save_dir, f'{task}_episode_variability.png')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    print(f"✅ Saved variability plot: {output_path}")
+    plt.close()
 
 def main():
     parser = argparse.ArgumentParser(description="Plot RL training results from CSV files.")
@@ -303,7 +477,6 @@ def main():
         
         available_algorithms = ["Q_Learning", "SARSA", "Double_Q_Learning", "Monte_Carlo"]
         data_dict = {}
-        
         for algo in available_algorithms:
             df = load_csv_data(task, algo, project_root)
             if df is not None:
@@ -322,7 +495,8 @@ def main():
         else:
             print(f"\n❌ No trained algorithms found!")
             return
-    
+        compare_algorithm_variance(task, plots_dir)
+        plot_episode_variability(task, plots_dir)
     else:
         # Plot single algorithm
         df = load_csv_data(task, algorithm, project_root)

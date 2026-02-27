@@ -2,7 +2,6 @@ from __future__ import annotations
 import numpy as np
 from RL_Algorithm.RL_base import BaseAlgorithm, ControlType
 
-
 class Q_Learning(BaseAlgorithm):
     def __init__(
             self,
@@ -17,16 +16,6 @@ class Q_Learning(BaseAlgorithm):
     ) -> None:
         """
         Initialize the Q-Learning algorithm.
-
-        Args:
-            num_of_action (int): Number of possible actions.
-            action_range (list): Scaling factor for actions.
-            discretize_state_weight (list): Scaling factor for discretizing states.
-            learning_rate (float): Learning rate for Q-value updates.
-            initial_epsilon (float): Initial value for epsilon in epsilon-greedy policy.
-            epsilon_decay (float): Rate at which epsilon decays.
-            final_epsilon (float): Minimum value for epsilon.
-            discount_factor (float): Discount factor for future rewards.
         """
         super().__init__(
             control_type=ControlType.Q_LEARNING,
@@ -40,46 +29,87 @@ class Q_Learning(BaseAlgorithm):
             discount_factor=discount_factor,
         )
         
-    def update(self,obs: dict,action: int,reward: float,terminated: bool,next_obs: dict,):
+    def update(self, obs: dict, action: int, reward: float, terminated: bool, next_obs: dict):
         """
-        Update the Q-value table using the Q-learning Bellman equation.
+        Original single-environment update.
         """
-        # 1. Convert continuous observations to discrete state tuples
-        if hasattr(self, '_update_count'):
-            self._update_count += 1
-        else:
-            self._update_count = 1
+        if not hasattr(self, '_update_count'):
+            self._update_count = 0
+        self._update_count += 1
     
-        state = self.discretize_state(obs)
-        next_state = self.discretize_state(next_obs)
+        state = self.discretize_state(obs)[0] # Note: discretize_state now returns a list
+        next_state = self.discretize_state(next_obs)[0]
 
-        # 2. Get the current Q-value for the state-action pair
-        # Note: self.q_values is a dict of numpy arrays, so we index the state, then the action.
         current_q = self.q_values[state][action]
 
-        # 3. Find max Q-value for the next state
         if terminated:
-            max_next_q = 0.0  # No future rewards if the episode is over
+            max_next_q = 0.0  
         else:
             max_next_q = np.max(self.q_values[next_state])
 
-        # 4. Calculate the Temporal Difference (TD) target
         td_target = reward + (self.discount_factor * max_next_q)
-
-        # 5. Calculate the TD error
         td_error = td_target - current_q
 
-        # 6. Update the Q-value (keeping exact float values, no rounding)
         self.q_values[state][action] = current_q + (self.lr * td_error)
+        
         if self._update_count <= 10:
             print(f"Update #{self._update_count}:")
             print(f"  State: {state}, Action: {action}")
             print(f"  Reward: {reward:.4f}, Terminated: {terminated}")
             print(f"  Current Q: {current_q:.4f} -> New Q: {self.q_values[state][action]:.4f}")
             print(f"  TD Error: {td_error:.4f}\n")
-        # 7. Save the error for later analysis (optional but helpful)
+            
         self.training_error.append(td_error)
 
+    def update_batch(self, obs: dict, action: np.ndarray, reward: np.ndarray, terminated: np.ndarray, next_obs: dict):
+        """
+        Update the Q-value table using a batch of environments simultaneously.
+        """
+        # 1. Convert continuous observations to discrete state tuples for all envs
+        states = self.discretize_state(obs)
+        next_states = self.discretize_state(next_obs)
+
+        if not hasattr(self, '_update_count'):
+            self._update_count = 0
+
+        # Loop through all 256 environments and update the Q-table for each one
+        for i in range(len(states)):
+            self._update_count += 1
+            
+            state = states[i]
+            next_state = next_states[i]
+            a = action[i]
+            r = reward[i]
+            done = terminated[i]
+
+            # 2. Get the current Q-value for the state-action pair
+            current_q = self.q_values[state][a]
+
+            # 3. Find max Q-value for the next state
+            if done:
+                max_next_q = 0.0  # No future rewards if the episode is over
+            else:
+                max_next_q = np.max(self.q_values[next_state])
+
+            # 4. Calculate the Temporal Difference (TD) target
+            td_target = r + (self.discount_factor * max_next_q)
+
+            # 5. Calculate the TD error
+            td_error = td_target - current_q
+
+            # 6. Update the Q-value
+            self.q_values[state][a] = current_q + (self.lr * td_error)
+            
+            # Print debug info for the first 10 updates so you can see it working!
+            if self._update_count <= 10:
+                print(f"Update #{self._update_count} (Env {i}):")
+                print(f"  State: {state}, Action: {a}")
+                print(f"  Reward: {r:.4f}, Terminated: {done}")
+                print(f"  Current Q: {current_q:.4f} -> New Q: {self.q_values[state][a]:.4f}")
+                print(f"  TD Error: {td_error:.4f}\n")
+                
+            # 7. Save the error
+            self.training_error.append(td_error)
 
 """
 # -*- coding: utf-8 -*-

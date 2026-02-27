@@ -1,6 +1,6 @@
 # scripts/RL_Algorithm/config.py
 
-ALGORITHM = "Double_Q_Learning"  # Options: "Q_Learning", "SARSA", "Double_Q_Learning", "Monte_Carlo"
+ALGORITHM = "SARSA"#"Q_Learning"  # Options: "Q_Learning", "SARSA", "Double_Q_Learning", "Monte_Carlo"
 TASK = "Stabilize"  # Options: "Stabilize", "SwingUp"
 
 
@@ -22,7 +22,7 @@ EPSILON_DECAY = 0.9995
 FINAL_EPSILON = 0.1  
 
 # Training Parameters
-N_EPISODES = 5000
+N_EPISODES = 10000
 
 # Testing Parameters
 N_TEST_EPISODES = 10  # How many episodes to run in play.py

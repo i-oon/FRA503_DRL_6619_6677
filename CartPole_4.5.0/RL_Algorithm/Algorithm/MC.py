@@ -1,7 +1,7 @@
 from __future__ import annotations
 import numpy as np
+from collections import defaultdict
 from RL_Algorithm.RL_base import BaseAlgorithm, ControlType
-
 
 class MC(BaseAlgorithm):
     def __init__(
@@ -17,16 +17,6 @@ class MC(BaseAlgorithm):
     ) -> None:
         """
         Initialize the Monte Carlo algorithm.
-
-        Args:
-            num_of_action (int): Number of possible actions.
-            action_range (list): Scaling factor for actions.
-            discretize_state_weight (list): Scaling factor for discretizing states.
-            learning_rate (float): Learning rate for Q-value updates.
-            initial_epsilon (float): Initial value for epsilon in epsilon-greedy policy.
-            epsilon_decay (float): Rate at which epsilon decays.
-            final_epsilon (float): Minimum value for epsilon.
-            discount_factor (float): Discount factor for future rewards.
         """
         super().__init__(
             control_type=ControlType.MONTE_CARLO,
@@ -40,39 +30,77 @@ class MC(BaseAlgorithm):
             discount_factor=discount_factor,
         )
         
+        # Create separate memory buffers for all 256 environments
+        self.obs_hist_dict = defaultdict(list)
+        self.action_hist_dict = defaultdict(list)
+        self.reward_hist_dict = defaultdict(list)
+
     def update(self): 
         """
-        Update Q-values using Monte Carlo.
-
-        This method applies the Monte Carlo update rule to improve policy decisions by updating the Q-table.
-        It is called exactly once at the end of the episode by train.py.
+        Original single-environment update (kept for compatibility).
         """
-        # --- Phase 2: Learn from the episode ---
-        G = 0.0  # Initialize the cumulative discounted return
-
-        # Iterate backwards through the trajectory to calculate G efficiently
+        G = 0.0  
         for state, action, reward in zip(reversed(self.obs_hist), reversed(self.action_hist), reversed(self.reward_hist)):
-            
-            # Calculate the return G
             G = self.discount_factor * G + reward  
-            
-            # Convert continuous observation to discrete tuple key
-            state_dis = self.discretize_state(state)
-            
-            # Get current Q-value for (state, action)
+            state_dis = self.discretize_state(state)[0]
             current_q = self.q_values[state_dis][action]  
-            
-            # Apply the update rule (keeping exact floats, no rounding!)
             td_error = G - current_q
             self.q_values[state_dis][action] = current_q + (self.lr * td_error)  
-            
-            # Save error for analysis
             self.training_error.append(td_error)
 
-        # --- Phase 3: Clear the buffers for the next episode ---
         self.obs_hist.clear()
         self.action_hist.clear()
         self.reward_hist.clear()
+
+    def _update_single_env(self, env_idx: int):
+        """
+        Helper function to calculate G and update Q-table for ONE specific environment
+        that just finished its episode.
+        """
+        G = 0.0
+        obs_hist = self.obs_hist_dict[env_idx]
+        action_hist = self.action_hist_dict[env_idx]
+        reward_hist = self.reward_hist_dict[env_idx]
+        
+        # Check if trajectory is empty
+        if len(obs_hist) == 0:
+            return
+        
+        # Iterate backwards through this specific environment's trajectory
+        for state_dis, action, reward in zip(reversed(obs_hist), reversed(action_hist), reversed(reward_hist)):
+            G = self.discount_factor * G + reward
+            
+            current_q = self.q_values[state_dis][action]
+            td_error = G - current_q
+            self.q_values[state_dis][action] = current_q + (self.lr * td_error)
+            self.training_error.append(td_error)
+            
+        # Clear the buffers for this environment so it can start fresh
+        self.obs_hist_dict[env_idx].clear()
+        self.action_hist_dict[env_idx].clear()
+        self.reward_hist_dict[env_idx].clear()
+
+    def update_batch(self, obs: dict, action: np.ndarray, reward, terminated, next_obs: dict):
+        """
+        Gather experience for all 256 environments, and trigger updates for any that finish.
+        """
+        # Discretize all 256 current states
+        states = self.discretize_state(obs)
+
+        # Loop through the batch
+        for i in range(len(states)):
+            # Handle action indexing (might be array or scalar)
+            action_idx = action[i] if hasattr(action, '__len__') else action
+            
+            # Record the step memory for environment `i`
+            self.obs_hist_dict[i].append(states[i])
+            self.action_hist_dict[i].append(action_idx)
+            self.reward_hist_dict[i].append(reward[i].item() if hasattr(reward[i], 'item') else reward[i])
+            
+            # If environment `i` just died/finished, calculate its full return and update!
+            terminated_value = terminated[i].item() if hasattr(terminated[i], 'item') else terminated[i]
+            if terminated_value:
+                self._update_single_env(i)
 
 
 

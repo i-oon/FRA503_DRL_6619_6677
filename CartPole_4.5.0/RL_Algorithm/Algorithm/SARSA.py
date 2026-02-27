@@ -16,16 +16,6 @@ class SARSA(BaseAlgorithm):
     ) -> None:
         """
         Initialize the SARSA algorithm.
-
-        Args:
-            num_of_action (int): Number of possible actions.
-            action_range (list): Scaling factor for actions.
-            discretize_state_weight (list): Scaling factor for discretizing states.
-            learning_rate (float): Learning rate for Q-value updates.
-            initial_epsilon (float): Initial value for epsilon in epsilon-greedy policy.
-            epsilon_decay (float): Rate at which epsilon decays.
-            final_epsilon (float): Minimum value for epsilon.
-            discount_factor (float): Discount factor for future rewards.
         """
         super().__init__(
             control_type=ControlType.SARSA,
@@ -49,39 +39,70 @@ class SARSA(BaseAlgorithm):
         next_action: int,  
     ):
         """
-        Update the Q-value table using the SARSA Bellman equation.
+        Original single-environment update.
         """
-        # 1. Convert continuous observations to discrete state tuples
-        state = self.discretize_state(obs)
-        next_state = self.discretize_state(next_obs)
+        # Note: discretize_state now returns a list, so we grab index [0]
+        state = self.discretize_state(obs)[0]
+        next_state = self.discretize_state(next_obs)[0]
 
-        # 2. Get the current Q-value
         current_q = self.q_values[state][action]
 
-        # 3. Find the Q-value for the ACTUAL next state-action pair
         if terminated:
             next_q = 0.0
         else:
-            # Notice we use next_action here, not np.max!
             next_q = self.q_values[next_state][next_action] 
 
-        # 4. Calculate the Temporal Difference (TD) target
         td_target = reward + (self.discount_factor * next_q)
-
-        # 5. Calculate the TD error
         td_error = td_target - current_q
 
-        # 6. Update the Q-value
         self.q_values[state][action] = current_q + (self.lr * td_error)
-
-        # 7. Save the error for later analysis
         self.training_error.append(td_error)
-        """
-        Update Q-values using SARSA .
 
-        This method applies the SARSA update rule to improve policy decisions by updating the Q-table.
+    def update_batch(
+        self, 
+        obs: dict, 
+        action: np.ndarray, 
+        reward: np.ndarray, 
+        terminated: np.ndarray, 
+        next_obs: dict, 
+        next_action: np.ndarray
+    ):
         """
-        pass
+        Update the Q-value table using the SARSA Bellman equation for a batch of 256 environments.
+        """
+        # Convert continuous observations to discrete state tuples for all envs
+        states = self.discretize_state(obs)
+        next_states = self.discretize_state(next_obs)
+
+        # Loop through all 256 environments and update the Q-table for each one
+        for i in range(len(states)):
+            state = states[i]
+            next_state = next_states[i]
+            a = action[i]
+            r = reward[i]
+            done = terminated[i]
+            next_a = next_action[i]
+
+            # Get the current Q-value
+            current_q = self.q_values[state][a]
+
+            # Find the Q-value for the ACTUAL next state-action pair
+            if done:
+                next_q = 0.0
+            else:
+                next_q = self.q_values[next_state][next_a] 
+
+            # Calculate the Temporal Difference (TD) target
+            td_target = r + (self.discount_factor * next_q)
+
+            # Calculate the TD error
+            td_error = td_target - current_q
+
+            # Update the Q-value
+            self.q_values[state][a] = current_q + (self.lr * td_error)
+
+            # Save the error for later analysis
+            self.training_error.append(td_error)
 
 
 

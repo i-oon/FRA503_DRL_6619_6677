@@ -173,7 +173,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     length_window = deque(maxlen=100)
 
     # ==================================================================== #
-    # ========================= Training Loop ============================ #
+    # ========================= Vectorized Training Loop ================= #
     # ==================================================================== #
 
     obs, _ = env.reset()
@@ -182,138 +182,137 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     episode_rewards = []  # Track all episode rewards
     episode_lengths = []  # Track all episode lengths
 
-    # Initialize early stopping variables BEFORE the loop
+    # Arrays to track cumulative rewards and lengths for all environments
+    env_cumulative_rewards = np.zeros(args_cli.num_envs)
+    env_episode_lengths = np.zeros(args_cli.num_envs)
+
     best_avg_reward = -float('inf')
     best_episode = 0
-    patience = 500
+    patience = 15000
     episodes_without_improvement = 0
+    episodes_completed = 0
 
-    # simulate environment
-    while simulation_app.is_running():
+    pbar = tqdm(total=n_episodes, desc=f"Training {Algorithm_name}")
+    action_tensor, action_idx = agent.get_action(obs)
+
+   # simulate environment
+    while simulation_app.is_running() and episodes_completed < n_episodes:
         with torch.inference_mode():
-        
-            for episode in tqdm(range(n_episodes), desc=f"Training {Algorithm_name}"):
-                obs, _ = env.reset()
-                done = False
-                cumulative_reward = 0
-                episode_length = 0
+            
+            # Step ALL environments
+            next_obs, rewards, terminated, truncated, _ = env.step(action_tensor)
 
-                action_tensor, action_idx = agent.get_action(obs)
+            # Move tensors to CPU numpy arrays for Q-table operations
+            rewards_np = rewards.cpu().numpy()
+            terminated_np = terminated.cpu().numpy()
+            truncated_np = truncated.cpu().numpy()
+            dones_np = terminated_np | truncated_np
 
-                while not done:
-                    next_obs, reward, terminated, truncated, _ = env.step(action_tensor)
+            env_cumulative_rewards += rewards_np
+            env_episode_lengths += 1
 
-                    reward_value = reward.item()
-                    terminated_value = terminated.item() 
-                    cumulative_reward += reward_value
-                    episode_length += 1
+            # Get next actions (but may be overridden by MC)
+            next_action_tensor, next_action_idx = agent.get_action(next_obs)
 
-                    # Algorithm-specific update logic
-                    if agent.control_type == ControlType.SARSA:
-                        next_action_tensor, next_action_idx = agent.get_action(next_obs)
-                        agent.update(
-                            obs=obs,
-                            action=action_idx,
-                            reward=reward_value,
-                            terminated=terminated_value,
-                            next_obs=next_obs,
-                            next_action=next_action_idx
-                        )
-                        action_tensor = next_action_tensor
-                        action_idx = next_action_idx
-
-                    elif agent.control_type in [ControlType.Q_LEARNING, ControlType.DOUBLE_Q_LEARNING]:
-                        agent.update(
-                            obs=obs,
-                            action=action_idx,
-                            reward=reward_value,
-                            terminated=terminated_value,
-                            next_obs=next_obs
-                        )
-                        action_tensor, action_idx = agent.get_action(next_obs)
-
-                    elif agent.control_type == ControlType.MONTE_CARLO:
-                        agent.obs_hist.append(obs)
-                        agent.action_hist.append(action_idx)
-                        agent.reward_hist.append(reward_value)
-                        action_tensor, action_idx = agent.get_action(next_obs)
-
-                    done = terminated or truncated
-                    obs = next_obs
-
-                # Episode finished - episode_length = total timesteps in this episode
-                print(f"Episode {episode}: {episode_length} timesteps, reward = {cumulative_reward}")
-
-                episode_rewards.append(cumulative_reward)
-                episode_lengths.append(episode_length)
-
-                # End of episode updates
-                if agent.control_type == ControlType.MONTE_CARLO:
-                    agent.update()
-
-                agent.decay_epsilon()
-                
-                # CSV Logging
-                reward_window.append(cumulative_reward)
-                length_window.append(episode_length)
-                
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                save_metrics_to_csv(
-                    csv_writer,
-                    episode,
-                    cumulative_reward,
-                    episode_length,
-                    agent.epsilon,
-                    reward_window,
-                    length_window,
-                    timestamp
+            # --- ALGORITHM BATCH UPDATES ---
+            if agent.control_type == ControlType.SARSA:
+                agent.update_batch(
+                    obs=obs, action=action_idx, reward=rewards_np, 
+                    terminated=terminated_np, next_obs=next_obs, next_action=next_action_idx
                 )
+                # SARSA uses the computed next_action
+                action_tensor = next_action_tensor
+                action_idx = next_action_idx
                 
-                best_avg_reward = -float('inf')
-                best_episode = 0
-                patience = 500  # Stop if no improvement for 500 episodes
-                episodes_without_improvement = 0
+            elif agent.control_type in [ControlType.Q_LEARNING, ControlType.DOUBLE_Q_LEARNING]:
+                agent.update_batch(
+                    obs=obs, action=action_idx, reward=rewards_np, 
+                    terminated=terminated_np, next_obs=next_obs
+                )
+                # Q-Learning uses the computed next_action
+                action_tensor = next_action_tensor
+                action_idx = next_action_idx
+                
+            elif agent.control_type == ControlType.MONTE_CARLO:
+                agent.update_batch(
+                    obs=obs,
+                    action=action_idx,
+                    reward=rewards_np,
+                    terminated=terminated_np,
+                    next_obs=next_obs
+                )
+                # MC gets its own next action (DON'T use next_action_tensor!)
+                action_tensor, action_idx = agent.get_action(next_obs)
 
-                if (episode + 1) % 10 == 0:
-                    csv_file.flush()
-                
-                # Save Q-values every 100 episodes
-                if episode % 100 == 0:
-                    q_value_file = f"{Algorithm_name}_{episode}_{num_of_action}_{int(action_range[1])}_{discretize_state_weight[0]}_{discretize_state_weight[1]}.json"
-                    agent.save_q_value(q_value_dir, q_value_file)
-                    
-                    if len(episode_rewards) >= 100:
-                        avg_reward = np.mean(episode_rewards[-100:])
+            # Advance state for the next loop
+            obs = next_obs
+
+            # Check if any environments just finished an episode
+            for i in range(args_cli.num_envs):
+                if dones_np[i]:
+                    episodes_completed += 1
+                    pbar.update(1)
+
+                    cumulative_reward = env_cumulative_rewards[i]
+                    episode_length = env_episode_lengths[i]
+
+                    episode_rewards.append(cumulative_reward)
+                    episode_lengths.append(episode_length)
+                    reward_window.append(cumulative_reward)
+                    length_window.append(episode_length)
+
+                    # Reset tracking arrays for this specific environment
+                    env_cumulative_rewards[i] = 0
+                    env_episode_lengths[i] = 0
+
+                    agent.decay_epsilon()
+                    # Save metrics and Q-table every 100 total episodes across all envs
+                    if episodes_completed % 100 == 0:
                         
-                        if avg_reward > best_avg_reward:
-                            best_avg_reward = avg_reward
-                            best_episode = episode
-                            episodes_without_improvement = 0
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        save_metrics_to_csv(
+                            csv_writer, episodes_completed, cumulative_reward, episode_length,
+                            agent.epsilon, reward_window, length_window, timestamp
+                        )
+                        csv_file.flush()
+
+                        q_value_file = f"{Algorithm_name}_{episodes_completed}_{num_of_action}_{int(action_range[1])}_{discretize_state_weight[0]}_{discretize_state_weight[1]}.json"
+                        agent.save_q_value(q_value_dir, q_value_file)
+
+                        # Check for improvements
+                        if len(episode_rewards) >= 100:
+                            avg_reward = np.mean(episode_rewards[-100:])
                             
-                            # Save BEST Q-table
-                            best_q_filename = f"{Algorithm_name}_BEST_{num_of_action}_{int(action_range[1])}_{discretize_state_weight[0]}_{discretize_state_weight[1]}.json"
-                            agent.save_q_value(q_value_dir, best_q_filename)
-                            print(f"💾 NEW BEST at episode {episode}: {avg_reward:.2f} reward")
-                        else:
-                            episodes_without_improvement += 100
-                            print(f"⚠️  No improvement for {episodes_without_improvement} episodes")
-                        
-                        # Early stopping
-                        if episodes_without_improvement >= patience:
-                            print(f"\n🛑 EARLY STOPPING at episode {episode}")
-                            print(f"   Best performance: {best_avg_reward:.2f} at episode {best_episode}")
-                            print(f"   Final Q-table saved as: {best_q_filename}")
-                            break
+                            if avg_reward > best_avg_reward:
+                                best_avg_reward = avg_reward
+                                best_episode = episodes_completed
+                                episodes_without_improvement = 0
+                                
+                                best_q_filename = f"{Algorithm_name}_BEST_{num_of_action}_{int(action_range[1])}_{discretize_state_weight[0]}_{discretize_state_weight[1]}.json"
+                                agent.save_q_value(q_value_dir, best_q_filename)
+                                print(f"\n💾 NEW BEST at episode {episodes_completed}: {avg_reward:.2f} reward")
+                            else:
+                                # ✅ FIX: Only increment when we actually checked (every 100 episodes)
+                                episodes_without_improvement += 100
 
-        
+                        # Early stopping trigger
+                        if episodes_without_improvement >= patience:
+                            break
+            
+            # Break completely if early stopping was triggered
+            if episodes_without_improvement >= patience:
+                print(f"\n🛑 EARLY STOPPING at episode {episodes_completed}")
+                print(f"   Best performance: {best_avg_reward:.2f} at episode {best_episode}")
+                print(f"   Final Q-table saved as: {best_q_filename}")
+                break
+
         if args_cli.video:
             timestep += 1
             if timestep == args_cli.video_length:
                 break
         
-        print("\n!!! Training is complete !!!")
-        print(f"CSV saved to: {csv_filename}")
-        break
+    print("\n!!! Training is complete !!!")
+    print(f"CSV saved to: {csv_filename}")
 
     csv_file.close()
     env.close()

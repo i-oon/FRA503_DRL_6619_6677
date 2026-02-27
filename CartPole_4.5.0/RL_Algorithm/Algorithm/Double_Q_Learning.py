@@ -16,16 +16,6 @@ class Double_Q_Learning(BaseAlgorithm):
     ) -> None:
         """
         Initialize the Double Q-Learning algorithm.
-
-        Args:
-            num_of_action (int): Number of possible actions.
-            action_range (list): Scaling factor for actions.
-            discretize_state_weight (list): Scaling factor for discretizing states.
-            learning_rate (float): Learning rate for Q-value updates.
-            initial_epsilon (float): Initial value for epsilon in epsilon-greedy policy.
-            epsilon_decay (float): Rate at which epsilon decays.
-            final_epsilon (float): Minimum value for epsilon.
-            discount_factor (float): Discount factor for future rewards.
         """
         super().__init__(
             control_type=ControlType.DOUBLE_Q_LEARNING,
@@ -39,12 +29,13 @@ class Double_Q_Learning(BaseAlgorithm):
             discount_factor=discount_factor,
         )
         
-    def update(self,obs: dict,action: int,reward: float,terminated: bool,next_obs: dict,):
+    def update(self, obs: dict, action: int, reward: float, terminated: bool, next_obs: dict):
         """
-        Update Q-values using Double Q-Learning.
+        Original single-environment update.
         """
-        state_dis = self.discretize_state(obs)
-        next_state_dis = self.discretize_state(next_obs)
+        # Note: discretize_state now returns a list, so we grab index [0]
+        state_dis = self.discretize_state(obs)[0]
+        next_state_dis = self.discretize_state(next_obs)[0]
         
         # Select a random Q-table (Q1 or Q2) to update
         if np.random.random() < 0.5:
@@ -69,8 +60,53 @@ class Double_Q_Learning(BaseAlgorithm):
             self.qb_values[state_dis][action] += self.lr * td_error
             self.training_error.append(td_error)
 
+        # Average them for the main Q-table used in action selection
         self.q_values[state_dis][action] = (self.qa_values[state_dis][action] + self.qb_values[state_dis][action]) / 2.0
 
+    def update_batch(self, obs: dict, action: np.ndarray, reward: np.ndarray, terminated: np.ndarray, next_obs: dict):
+        """
+        Update Q-values using Double Q-Learning for a batch of 256 environments simultaneously.
+        """
+        states = self.discretize_state(obs)
+        next_states = self.discretize_state(next_obs)
+
+        # Loop through all 256 environments
+        for i in range(len(states)):
+            state = states[i]
+            next_state = next_states[i]
+            a = action[i]
+            r = reward[i]
+            done = terminated[i]
+
+            # Select a random Q-table (Q1 or Q2) to update for this specific environment
+            if np.random.random() < 0.5:
+                # --- Update Q1 (qa_values) ---
+                if done:
+                    eval_q2 = 0.0
+                else:
+                    best_next_action_q1 = int(np.argmax(self.qa_values[next_state]))
+                    eval_q2 = self.qb_values[next_state][best_next_action_q1]
+                
+                current_q1 = self.qa_values[state][a]
+                td_error = r + (self.discount_factor * eval_q2) - current_q1
+                self.qa_values[state][a] += self.lr * td_error
+                self.training_error.append(td_error)
+                
+            else:
+                # --- Update Q2 (qb_values) ---
+                if done:
+                    eval_q1 = 0.0
+                else:
+                    best_next_action_q2 = int(np.argmax(self.qb_values[next_state]))
+                    eval_q1 = self.qa_values[next_state][best_next_action_q2]
+                
+                current_q2 = self.qb_values[state][a]
+                td_error = r + (self.discount_factor * eval_q1) - current_q2
+                self.qb_values[state][a] += self.lr * td_error
+                self.training_error.append(td_error)
+
+            # Keep the main Q-table updated as the average of QA and QB
+            self.q_values[state][a] = (self.qa_values[state][a] + self.qb_values[state][a]) / 2.0
 
     """
     # -*- coding: utf-8 -*-
