@@ -45,6 +45,11 @@ class Q_Learning(BaseAlgorithm):
         Update the Q-value table using the Q-learning Bellman equation.
         """
         # 1. Convert continuous observations to discrete state tuples
+        if hasattr(self, '_update_count'):
+            self._update_count += 1
+        else:
+            self._update_count = 1
+    
         state = self.discretize_state(obs)
         next_state = self.discretize_state(next_obs)
 
@@ -66,14 +71,15 @@ class Q_Learning(BaseAlgorithm):
 
         # 6. Update the Q-value (keeping exact float values, no rounding)
         self.q_values[state][action] = current_q + (self.lr * td_error)
-
+        if self._update_count <= 10:
+            print(f"Update #{self._update_count}:")
+            print(f"  State: {state}, Action: {action}")
+            print(f"  Reward: {reward:.4f}, Terminated: {terminated}")
+            print(f"  Current Q: {current_q:.4f} -> New Q: {self.q_values[state][action]:.4f}")
+            print(f"  TD Error: {td_error:.4f}\n")
         # 7. Save the error for later analysis (optional but helpful)
         self.training_error.append(td_error)
 
-
-
-
-### code
 
 """
 # -*- coding: utf-8 -*-

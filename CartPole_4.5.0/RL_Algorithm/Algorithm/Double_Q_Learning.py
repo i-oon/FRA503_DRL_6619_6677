@@ -43,7 +43,6 @@ class Double_Q_Learning(BaseAlgorithm):
         """
         Update Q-values using Double Q-Learning.
         """
-        # 1. Use the standard variable names from your train.py loop
         state_dis = self.discretize_state(obs)
         next_state_dis = self.discretize_state(next_obs)
         
@@ -70,10 +69,7 @@ class Double_Q_Learning(BaseAlgorithm):
             self.qb_values[state_dis][action] += self.lr * td_error
             self.training_error.append(td_error)
 
-        # IMPORTANT FIX FOR SAVING: 
-        # Since your base class saves `self.q_values` to the JSON file, we need 
-        # to keep it updated with the combined knowledge of QA and QB!
-        self.q_values[state_dis][action] = self.qa_values[state_dis][action] + self.qb_values[state_dis][action]
+        self.q_values[state_dis][action] = (self.qa_values[state_dis][action] + self.qb_values[state_dis][action]) / 2.0
 
 
     """

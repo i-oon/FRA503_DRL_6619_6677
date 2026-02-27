@@ -99,6 +99,16 @@ class BaseAlgorithm():
         if isinstance(state, torch.Tensor):
             state = state.detach().cpu().numpy()
         state = np.squeeze(state)  # ensure shape (4,)
+
+        if not hasattr(self, '_discretize_calls'):
+            self._discretize_calls = 0
+        self._discretize_calls += 1
+        
+        if self._discretize_calls <= 5:
+            print(f"Discretize call #{self._discretize_calls}:")
+            print(f"  Raw state: {state}")
+
+
         # Apply scaling for discretization
         scaled = state * np.array(self.discretize_state_weight)
         # Convert to integer bins
