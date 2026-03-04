@@ -41,6 +41,149 @@ def load_csv_data(task, algorithm, project_root):
         return None
 
 
+def log_algorithm_statistics(df, algorithm):
+    """Print detailed statistics for a single algorithm."""
+    rewards = df['reward'].values
+    lengths = df['length'].values
+    avg_rewards = df['avg_reward_100'].values
+    
+    # Overall statistics
+    print(f"\n{'='*70}")
+    print(f"📊 {algorithm} - Training Statistics")
+    print(f"{'='*70}")
+    
+    # Best performance
+    best_episode = int(np.argmax(rewards))
+    best_reward = float(rewards[best_episode])
+    peak_avg_episode = int(np.argmax(avg_rewards))
+    peak_avg_reward = float(avg_rewards[peak_avg_episode])
+    
+    print(f"\n🏆 Peak Performance:")
+    print(f"  Best Single Episode: #{best_episode} (Reward: {best_reward:.2f})")
+    print(f"  Peak 100-ep Average: #{peak_avg_episode} (Avg: {peak_avg_reward:.2f})")
+    
+    # Final performance
+    final_avg = float(avg_rewards[-1])
+    last_100_mean = float(rewards[-100:].mean()) if len(rewards) >= 100 else float(rewards.mean())
+    last_100_std = float(rewards[-100:].std()) if len(rewards) >= 100 else float(rewards.std())
+    
+    print(f"\n📈 Final Performance (Last 100 Episodes):")
+    print(f"  Mean Reward: {last_100_mean:.2f} ± {last_100_std:.2f}")
+    print(f"  100-ep Moving Avg: {final_avg:.2f}")
+    print(f"  Episode Length: {lengths[-100:].mean():.1f} ± {lengths[-100:].std():.1f} steps")
+    
+    # Training stability
+    performance_drop = peak_avg_reward - final_avg
+    drop_percentage = (performance_drop / peak_avg_reward * 100) if peak_avg_reward > 0 else 0
+    
+    print(f"\n⚖️  Training Stability:")
+    print(f"  Performance Drop: {performance_drop:.2f} ({drop_percentage:.1f}%)")
+    if drop_percentage < 5:
+        print(f"  Status: ✅ Stable (minimal forgetting)")
+    elif drop_percentage < 15:
+        print(f"  Status: ⚠️  Moderate (some forgetting)")
+    else:
+        print(f"  Status: ❌ Unstable (significant forgetting)")
+    
+    # Variance analysis (last 500 episodes)
+    late = df.tail(500) if len(df) >= 500 else df.tail(len(df)//2)
+    variance = float(late['reward'].var())
+    cv = float(late['reward'].std() / abs(late['reward'].mean()))
+    
+    print(f"\n📉 Variance Analysis (Last {len(late)} Episodes):")
+    print(f"  Reward Variance: {variance:.1f}")
+    print(f"  Coefficient of Variation: {cv:.4f}")
+    print(f"  Std Dev: {late['reward'].std():.2f}")
+    
+    # Learning efficiency
+    reward_per_step = rewards / np.maximum(lengths, 1)
+    efficiency = float(reward_per_step[-100:].mean()) if len(reward_per_step) >= 100 else float(reward_per_step.mean())
+    
+    print(f"\n⚡ Learning Efficiency:")
+    print(f"  Reward per Step: {efficiency:.4f}")
+    print(f"  Target (optimal): 1.0000")
+    
+    print(f"{'='*70}\n")
+
+
+def log_comparison_table(data_dict):
+    """Print comparison table for multiple algorithms."""
+    print(f"\n{'='*80}")
+    print(f"📊 Algorithm Comparison Table")
+    print(f"{'='*80}\n")
+    
+    # Header
+    print(f"{'Algorithm':<20} {'Peak Avg':<12} {'Final Avg':<12} {'Drop%':<10} {'Variance':<12} {'CV':<10}")
+    print(f"{'-'*80}")
+    
+    stats_list = []
+    for algo, df in data_dict.items():
+        rewards = df['reward'].values
+        avg_rewards = df['avg_reward_100'].values
+        
+        # Calculate metrics
+        peak_avg = float(np.max(avg_rewards))
+        final_avg = float(avg_rewards[-1])
+        drop = ((peak_avg - final_avg) / peak_avg * 100) if peak_avg > 0 else 0
+        
+        # Variance (last 500 episodes)
+        late = df.tail(500) if len(df) >= 500 else df.tail(len(df)//2)
+        variance = float(late['reward'].var())
+        cv = float(late['reward'].std() / abs(late['reward'].mean()))
+        
+        stats_list.append({
+            'algorithm': algo,
+            'peak_avg': peak_avg,
+            'final_avg': final_avg,
+            'drop': drop,
+            'variance': variance,
+            'cv': cv
+        })
+        
+        print(f"{algo:<20} {peak_avg:<12.2f} {final_avg:<12.2f} {drop:<10.1f} {variance:<12.1f} {cv:<10.4f}")
+    
+    print(f"{'-'*80}\n")
+    
+    # Rank by final performance
+    ranked = sorted(stats_list, key=lambda x: x['final_avg'], reverse=True)
+    print(f"🏆 Performance Ranking (by Final Avg Reward):")
+    for i, s in enumerate(ranked, 1):
+        print(f"  {i}. {s['algorithm']:<20} {s['final_avg']:.2f}")
+    
+    # Analyze MC vs TD
+    mc_stats = next((s for s in stats_list if 'Monte_Carlo' in s['algorithm']), None)
+    td_stats = [s for s in stats_list if 'Monte_Carlo' not in s['algorithm']]
+    
+    if mc_stats and td_stats:
+        print(f"\n📈 Monte Carlo vs TD Methods:")
+        avg_td_final = np.mean([s['final_avg'] for s in td_stats])
+        avg_td_var = np.mean([s['variance'] for s in td_stats])
+        avg_td_cv = np.mean([s['cv'] for s in td_stats])
+        
+        print(f"  MC Final Avg: {mc_stats['final_avg']:.2f}")
+        print(f"  TD Avg Final: {avg_td_final:.2f}")
+        print(f"  Performance Gap: {mc_stats['final_avg'] - avg_td_final:+.2f}")
+        
+        print(f"\n  MC Variance: {mc_stats['variance']:.1f}")
+        print(f"  TD Avg Variance: {avg_td_var:.1f}")
+        print(f"  Variance Ratio (MC/TD): {mc_stats['variance']/avg_td_var:.2f}x")
+        
+        print(f"\n  MC CV: {mc_stats['cv']:.4f}")
+        print(f"  TD Avg CV: {avg_td_cv:.4f}")
+        print(f"  CV Ratio (MC/TD): {mc_stats['cv']/avg_td_cv:.2f}x")
+        
+        # Interpretation
+        if mc_stats['variance'] > avg_td_var * 1.3:
+            print(f"\n  ✅ Monte Carlo shows {mc_stats['variance']/avg_td_var:.2f}x HIGHER variance than TD")
+            print(f"     (Confirms theory: MC has high variance, TD has low variance)")
+        
+        if mc_stats['final_avg'] > avg_td_final:
+            print(f"\n  🎯 Monte Carlo OUTPERFORMED TD methods by {mc_stats['final_avg'] - avg_td_final:.2f}")
+            print(f"     (Unexpected: MC usually trades high variance for unbiased estimates)")
+    
+    print(f"{'='*80}\n")
+
+
 def plot_training_curves(df, algorithm, save_dir):
     """Plot training curves with shaded variance (inbetween)."""
     
@@ -530,6 +673,8 @@ def main():
             df = load_csv_data(task, algo, project_root)
             if df is not None:
                 data_dict[algo] = df
+                # Log statistics for each algorithm
+                log_algorithm_statistics(df, algo)
                 # # Generate individual plots
                 # print(f"\n📈 Generating plots for {algo}...")
                 # plot_training_curves(df, algo, plots_dir)
@@ -539,6 +684,7 @@ def main():
         if len(data_dict) > 1:
             print(f"\n📊 Generating comparison plot...")
             plot_algorithm_comparison(data_dict, task, plots_dir)
+            log_comparison_table(data_dict)
         elif len(data_dict) == 1:
             print(f"\n⚠️  Only one algorithm found. Need at least 2 for comparison.")
         else:
@@ -555,6 +701,9 @@ def main():
             print(f"Make sure you have run training first.")
             print(f"Expected CSV at: {project_root}/logs/{task}/{algorithm}/training_metrics.csv")
             return
+        
+        # Log statistics
+        log_algorithm_statistics(df, algorithm)
         
         print(f"\n📈 Generating plots for {algorithm}...")
         plot_training_curves(df, algorithm, plots_dir)

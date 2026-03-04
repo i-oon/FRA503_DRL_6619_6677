@@ -1,64 +1,58 @@
 # scripts/RL_Algorithm/config.py
-ALGORITHM = "Monte_Carlo"  # Change this to train different algorithms
+ALGORITHM = "Q_Learning"  # Change this to train different algorithms
 TASK = "Stabilize"
 
 # Action Space
-NUM_OF_ACTION = 5
+NUM_OF_ACTION = 2
 ACTION_RANGE = [-2.5, 2.5]  # Proven to work well!
 
 # State Discretization (critical for performance!)
 # Format: [cart_pos_weight, pole_angle_weight, cart_vel_weight, pole_vel_weight]
-DISCRETIZE_STATE_WEIGHT = [2, 12, 2, 10]  # 48,841 states - Sweet spot!
+DISCRETIZE_STATE_WEIGHT = [2, 10, 2, 10]  # 48,841 states - Sweet spot!
 
 # Testing Parameters
 N_TEST_EPISODES = 10
 
-# ===== ALGORITHM-SPECIFIC CONFIGS =====
 ALGORITHM_CONFIGS = {
     "Q_Learning": {
-        "LEARNING_RATE": 0.08,        # Balance speed vs stability
+        "LEARNING_RATE": 0.08,    
         "DISCOUNT_FACTOR": 0.99,
         "START_EPSILON": 1.0,
-        "EPSILON_DECAY": 0.998,       # Fast decay: reach ε=0.15 at ep 915
-        "FINAL_EPSILON": 0.15,        # Continuous exploration
-        "N_EPISODES": 25000,
-        # Why: Off-policy benefits from fast exploitation
-        # Expected: 180-200 reward, variance ~20
+        "EPSILON_DECAY": 0.998,  
+        "FINAL_EPSILON": 0.15,     
+        "N_EPISODES": 40000,   
+
     },
     
     "SARSA": {
-        "LEARNING_RATE": 0.12,        # Higher than Q! (compensate on-policy noise)
+        "LEARNING_RATE": 0.08,    
         "DISCOUNT_FACTOR": 0.99,
         "START_EPSILON": 1.0,
-        "EPSILON_DECAY": 0.997,       # Faster than Q! (reduce noise quickly)
-        "FINAL_EPSILON": 0.1,         # Lower than Q (less exploration needed)
-        "N_EPISODES": 25000,          # More than Q (learns slower)
-        # Why: On-policy sensitive to exploration noise
-        # Expected: 160-180 reward, variance ~18
+        "EPSILON_DECAY": 0.998,  
+        "FINAL_EPSILON": 0.15,     
+        "N_EPISODES": 40000,   
+
     },
     
     "Double_Q_Learning": {
-        "LEARNING_RATE": 0.15,        # Highest! (split updates = effective α/2)
+        "LEARNING_RATE": 0.08,    
         "DISCOUNT_FACTOR": 0.99,
         "START_EPSILON": 1.0,
-        "EPSILON_DECAY": 0.998,       # Same as Q-Learning
-        "FINAL_EPSILON": 0.15,        # Same as Q-Learning
-        "N_EPISODES": 25000,          # Most episodes! (slowest learner)
-        # Why: Split Q_A/Q_B updates → needs compensation
-        # Expected: 150-170 reward, variance ~15 (most stable!)
+        "EPSILON_DECAY": 0.998,  
+        "FINAL_EPSILON": 0.15,     
+        "N_EPISODES": 40000,   
     },
     
     "Monte_Carlo": {
-        "LEARNING_RATE": 0.03,        # Lowest! (reduce variance from parallel)
+        "LEARNING_RATE": 0.08,    
         "DISCOUNT_FACTOR": 0.99,
         "START_EPSILON": 1.0,
-        "EPSILON_DECAY": 0.9995,      # Slowest! (benefits from exploration)
-        "FINAL_EPSILON": 0.2,         # Highest! (discover diverse trajectories)
-        "N_EPISODES": 25000,          # Standard (efficient per-episode learning)
-        # Why: Full returns + parallel = high variance
-        # Expected: 180-200 reward, variance ~35-40
+        "EPSILON_DECAY": 0.998,  
+        "FINAL_EPSILON": 0.15,     
+        "N_EPISODES": 40000,   
     }
 }
+
 
 # ===== AUTO-LOAD CONFIG =====
 # Apply algorithm-specific config
