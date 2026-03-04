@@ -298,6 +298,216 @@ def plot_cart_pole_heatmap(q_values, config, algorithm, save_dir, episode=None,
     plt.close()
 
 
+def plot_velocity_surface(q_values, config, algorithm, save_dir, episode=None, 
+                          interpolation_resolution=100):
+    """
+    Create smooth 3D surface: Cart Velocity vs Pole Velocity (averaged over positions).
+    
+    Args:
+        interpolation_resolution: Number of points in each dimension for smooth surface (default: 200)
+    """
+    
+    weights = config['discretize_state_weight']
+    
+    print("\n📊 Creating Cart Velocity vs Pole Velocity 3D Surface")
+    print("   (Averaging over cart position and pole angle)")
+    print(f"   Interpolation resolution: {interpolation_resolution}x{interpolation_resolution}")
+    
+    # Group by velocity dimensions, average over position dimensions
+    averaged_q = {}
+    counts = {}
+    
+    for state, q_vals in q_values.items():
+        # state = (cart_pos_bin, pole_angle_bin, cart_vel_bin, pole_vel_bin)
+        cart_vel_bin = state[2]
+        pole_vel_bin = state[3]
+        
+        # Convert bin indices to continuous values
+        cart_vel = cart_vel_bin / weights[2]  # m/s
+        pole_vel = pole_vel_bin / weights[3]  # rad/s
+        
+        vel_key = (cart_vel, pole_vel)
+        max_q = np.max(q_vals)
+        
+        if vel_key not in averaged_q:
+            averaged_q[vel_key] = 0.0
+            counts[vel_key] = 0
+        
+        averaged_q[vel_key] += max_q
+        counts[vel_key] += 1
+    
+    # Average
+    for key in averaged_q:
+        averaged_q[key] /= counts[key]
+    
+    print(f"   Found {len(averaged_q)} unique (cart_vel, pole_vel) combinations")
+    print(f"   Average position states per velocity: {np.mean(list(counts.values())):.1f}")
+    print(f"   Max position states per velocity: {np.max(list(counts.values()))}")
+    print(f"   Min position states per velocity: {np.min(list(counts.values()))}")
+    
+    # Convert to arrays for interpolation
+    points = np.array([[k[0], k[1]] for k in averaged_q.keys()])  # (N, 2)
+    values = np.array([v for v in averaged_q.values()])  # (N,)
+    
+    # Get data ranges
+    x_min, x_max = points[:, 0].min(), points[:, 0].max()
+    y_min, y_max = points[:, 1].min(), points[:, 1].max()
+    
+    print(f"   Cart Velocity range: [{x_min:.2f}, {x_max:.2f}] m/s")
+    print(f"   Pole Velocity range: [{y_min:.2f}, {y_max:.2f}] rad/s")
+    print(f"   Q-value range: [{values.min():.2f}, {values.max():.2f}]")
+    print(f"   Q-value mean: {values.mean():.2f}")
+    print(f"   Q-value std: {values.std():.2f}")
+    
+    # Create fine mesh grid for smooth interpolation
+    x_fine = np.linspace(x_min, x_max, interpolation_resolution)
+    y_fine = np.linspace(y_min, y_max, interpolation_resolution)
+    X_fine, Y_fine = np.meshgrid(x_fine, y_fine)
+    
+    # Interpolate Q-values onto fine grid
+    print(f"   Interpolating Q-values onto {interpolation_resolution}x{interpolation_resolution} grid...")
+    Z_fine = griddata(points, values, (X_fine, Y_fine), method='cubic', fill_value=np.nan)
+    
+    # Fill any remaining NaN values at edges with nearest neighbor
+    mask_nan = np.isnan(Z_fine)
+    if mask_nan.any():
+        Z_nearest = griddata(points, values, (X_fine, Y_fine), method='nearest')
+        Z_fine[mask_nan] = Z_nearest[mask_nan]
+    
+    print(f"   Interpolation complete!")
+    
+    # Create 3D plot
+    fig = plt.figure(figsize=(14, 10))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Smooth surface plot
+    surf = ax.plot_surface(X_fine, Y_fine, Z_fine, cmap=cm.viridis, alpha=0.9,
+                          linewidth=0, antialiased=True, edgecolor='none',
+                          rcount=100, ccount=100)  # Smooth rendering
+    
+    # Labels
+    ax.set_xlabel('Cart Velocity (m/s)', fontsize=12, labelpad=12)
+    ax.set_ylabel('Pole Velocity (rad/s)', fontsize=12, labelpad=12)
+    ax.set_zlabel('Average Max Q-Value', fontsize=12, labelpad=12)
+    
+    # Title
+    title = f'3D Surface Plot of Q-Values\n{algorithm}'
+    if episode is not None:
+        title += f' (Episode {episode})'
+    title += '\n(Averaged over Cart Position and Pole Angle)'
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=25)
+    
+    # Color bar
+    cbar = fig.colorbar(surf, ax=ax, shrink=0.5, aspect=8, pad=0.1)
+    cbar.set_label('Average Max Q-Value', fontsize=11)
+    
+    # Better viewing angle
+    ax.view_init(elev=25, azim=45)
+    
+    # Grid
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    # Save
+    episode_str = f"_ep{episode}" if episode is not None else ""
+    filename = f'{algorithm}_q_surface_Cart_Velocity_vs_Pole_Velocity{episode_str}.png'
+    output_path = os.path.join(save_dir, filename)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    print(f"✅ Saved: {output_path}")
+    plt.close()
+    
+    return points, X_fine, Y_fine, Z_fine
+
+
+def plot_velocity_heatmap(q_values, config, algorithm, save_dir, episode=None,
+                          interpolation_resolution=100):
+    """Create smooth 2D heatmap for Cart Velocity vs Pole Velocity."""
+    
+    weights = config['discretize_state_weight']
+    
+    print("\n📊 Creating Cart Velocity vs Pole Velocity Heatmap")
+    
+    # Group by velocity dimensions
+    averaged_q = {}
+    counts = {}
+    
+    for state, q_vals in q_values.items():
+        cart_vel_bin = state[2]
+        pole_vel_bin = state[3]
+        
+        cart_vel = cart_vel_bin / weights[2]
+        pole_vel = pole_vel_bin / weights[3]
+        
+        vel_key = (cart_vel, pole_vel)
+        max_q = np.max(q_vals)
+        
+        if vel_key not in averaged_q:
+            averaged_q[vel_key] = 0.0
+            counts[vel_key] = 0
+        
+        averaged_q[vel_key] += max_q
+        counts[vel_key] += 1
+    
+    for key in averaged_q:
+        averaged_q[key] /= counts[key]
+    
+    # Convert to arrays
+    points = np.array([[k[0], k[1]] for k in averaged_q.keys()])
+    values = np.array([v for v in averaged_q.values()])
+    
+    # Get ranges
+    x_min, x_max = points[:, 0].min(), points[:, 0].max()
+    y_min, y_max = points[:, 1].min(), points[:, 1].max()
+    
+    # Create fine grid
+    x_fine = np.linspace(x_min, x_max, interpolation_resolution)
+    y_fine = np.linspace(y_min, y_max, interpolation_resolution)
+    X_fine, Y_fine = np.meshgrid(x_fine, y_fine)
+    
+    # Interpolate
+    print(f"   Interpolating onto {interpolation_resolution}x{interpolation_resolution} grid...")
+    Z_fine = griddata(points, values, (X_fine, Y_fine), method='cubic', fill_value=np.nan)
+    
+    # Fill NaN with nearest
+    mask_nan = np.isnan(Z_fine)
+    if mask_nan.any():
+        Z_nearest = griddata(points, values, (X_fine, Y_fine), method='nearest')
+        Z_fine[mask_nan] = Z_nearest[mask_nan]
+    
+    # Create heatmap
+    fig, ax = plt.subplots(figsize=(12, 9))
+    
+    im = ax.imshow(Z_fine, cmap='viridis', aspect='auto', origin='lower',
+                   extent=[x_min, x_max, y_min, y_max], interpolation='bilinear')
+    
+    ax.set_xlabel('Cart Velocity (m/s)', fontsize=12)
+    ax.set_ylabel('Pole Velocity (rad/s)', fontsize=12)
+    
+    title = f'Q-Value Heatmap: {algorithm}'
+    if episode is not None:
+        title += f' (Episode {episode})'
+    ax.set_title(title, fontsize=13, fontweight='bold')
+    
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('Average Max Q-Value', fontsize=11)
+    
+    # Add contour lines for better visualization
+    contours = ax.contour(X_fine, Y_fine, Z_fine, levels=10, colors='white', 
+                          alpha=0.3, linewidths=0.5)
+    
+    ax.grid(True, alpha=0.2, color='white', linewidth=0.5)
+    
+    plt.tight_layout()
+    
+    episode_str = f"_ep{episode}" if episode is not None else ""
+    filename = f'{algorithm}_q_heatmap_Cart_Velocity_vs_Pole_Velocity{episode_str}.png'
+    output_path = os.path.join(save_dir, filename)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    print(f"✅ Saved: {output_path}")
+    plt.close()
+
+
 def plot_comparison(all_data, save_dir):
     """Create comparison plot of all algorithms."""
     
@@ -338,7 +548,7 @@ def plot_comparison(all_data, save_dir):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize Q-values: Cart Position vs Pole Angle")
+    parser = argparse.ArgumentParser(description="Visualize Q-values: Cart Position vs Pole Angle or Cart Velocity vs Pole Velocity")
     parser.add_argument("--task", type=str, default=None,
                        help="Task name (default: from config.py)")
     parser.add_argument("--algorithm", type=str, default=None,
@@ -353,6 +563,8 @@ def main():
                        help="Create comparison plot (requires --all)")
     parser.add_argument("--resolution", type=int, default=200,
                        help="Interpolation resolution (default: 200)")
+    parser.add_argument("--velocity", action="store_true",
+                       help="Plot Cart Velocity vs Pole Velocity (instead of Position vs Angle)")
     args = parser.parse_args()
     
     # Get from config if not specified
@@ -364,7 +576,10 @@ def main():
     os.makedirs(plots_dir, exist_ok=True)
     
     print("\n" + "="*70)
-    print("📊 Q-Value Visualization: Cart Position vs Pole Angle")
+    if args.velocity:
+        print("📊 Q-Value Visualization: Cart Velocity vs Pole Velocity")
+    else:
+        print("📊 Q-Value Visualization: Cart Position vs Pole Angle")
     print("="*70)
     print(f"Task: {task}")
     print(f"Output directory: {plots_dir}")
@@ -399,14 +614,23 @@ def main():
             print(f"⚠️  Failed to load Q-values for {algorithm}")
             continue
         
-        # Generate smooth 3D surface plot
-        points, X, Y, Z = plot_cart_pole_surface(q_values, config, algorithm, plots_dir, 
-                                                  episode, args.resolution)
-        all_data[algorithm] = (points, X, Y, Z)
-        
-        # Generate smooth heatmap if requested
-        if args.heatmap:
-            plot_cart_pole_heatmap(q_values, config, algorithm, plots_dir, episode, args.resolution)
+        # Generate plots based on mode
+        if args.velocity:
+            # Generate Cart Velocity vs Pole Velocity plots
+            points, X, Y, Z = plot_velocity_surface(q_values, config, algorithm, plots_dir, 
+                                                     episode, args.resolution)
+            all_data[algorithm] = (points, X, Y, Z)
+            
+            if args.heatmap:
+                plot_velocity_heatmap(q_values, config, algorithm, plots_dir, episode, args.resolution)
+        else:
+            # Generate Cart Position vs Pole Angle plots (original)
+            points, X, Y, Z = plot_cart_pole_surface(q_values, config, algorithm, plots_dir, 
+                                                      episode, args.resolution)
+            all_data[algorithm] = (points, X, Y, Z)
+            
+            if args.heatmap:
+                plot_cart_pole_heatmap(q_values, config, algorithm, plots_dir, episode, args.resolution)
     
     # Generate comparison plot if requested
     if args.compare and len(all_data) > 1:

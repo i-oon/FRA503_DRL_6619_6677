@@ -42,47 +42,59 @@ def load_csv_data(task, algorithm, project_root):
 
 
 def plot_training_curves(df, algorithm, save_dir):
-    """Plot training curves for a single algorithm."""
+    """Plot training curves with shaded variance (inbetween)."""
     
-    fig, axes = plt.subplots(3, 1, figsize=(12, 10))
-    
+    fig, axes = plt.subplots(3, 1, figsize=(12, 12))
     episodes = df['episode'].values
     
-    # Plot 1: Episode Rewards
-    axes[0].plot(episodes, df['reward'].values, alpha=0.3, color='blue', 
-                label='Raw Rewards', linewidth=0.8)
-    axes[0].plot(episodes, df['avg_reward_100'].values, linewidth=2.5, color='darkblue', 
-                 label='100-Episode Moving Average')
-    axes[0].axhline(y=0, color='gray', linestyle='--', alpha=0.5)
-    axes[0].set_xlabel('Episode', fontsize=12)
+    # คำนวณ Rolling Standard Deviation เพื่อทำแถบ Variance
+    window = 100
+    reward_std = df['reward'].rolling(window=window).std()
+    length_std = df['length'].rolling(window=window).std()
+    
+    # --- Plot 1: Episode Rewards ---
+    avg_reward = df['avg_reward_100'].values
+    axes[0].plot(episodes, df['reward'].values, alpha=0.15, color='blue', label='Raw Rewards', linewidth=0.5)
+    axes[0].plot(episodes, avg_reward, linewidth=2, color='darkblue', label='100-Episode Mean')
+    
+    # ส่วนที่เพิ่ม: Shaded Variance สำหรับ Reward
+    axes[0].fill_between(episodes, 
+                         avg_reward - reward_std, 
+                         avg_reward + reward_std, 
+                         color='blue', alpha=0.2, label='±1 Std Dev')
+    
     axes[0].set_ylabel('Total Reward', fontsize=12)
-    axes[0].set_title(f'{algorithm}: Episode Rewards over Training', fontsize=14, fontweight='bold')
-    axes[0].legend(loc='best')
+    axes[0].set_title(f'{algorithm}: Reward Learning Curve (with Variance)', fontsize=14, fontweight='bold')
+    axes[0].legend(loc='upper left')
     axes[0].grid(True, alpha=0.3)
+
+    # --- Plot 2: Episode Lengths ---
+    avg_length = df['avg_length_100'].values
+    axes[1].plot(episodes, df['length'].values, alpha=0.15, color='green', label='Raw Lengths', linewidth=0.5)
+    axes[1].plot(episodes, avg_length, linewidth=2, color='darkgreen', label='100-Episode Mean')
     
-    # Plot 2: Episode Lengths
-    axes[1].plot(episodes, df['length'].values, alpha=0.3, color='green', 
-                label='Raw Lengths', linewidth=0.8)
-    axes[1].plot(episodes, df['avg_length_100'].values, linewidth=2.5, color='darkgreen', 
-                 label='100-Episode Moving Average')
-    axes[1].set_xlabel('Episode', fontsize=12)
-    axes[1].set_ylabel('Episode Length (steps)', fontsize=12)
-    axes[1].set_title(f'{algorithm}: Episode Lengths over Training', fontsize=14, fontweight='bold')
-    axes[1].legend(loc='best')
+    # ส่วนที่เพิ่ม: Shaded Variance สำหรับ Episode Length
+    axes[1].fill_between(episodes, 
+                         avg_length - length_std, 
+                         avg_length + length_std, 
+                         color='green', alpha=0.2, label='±1 Std Dev')
+    
+    axes[1].set_ylabel('Steps per Episode', fontsize=12)
+    axes[1].set_title(f'{algorithm}: Stability of Episode Length', fontsize=14, fontweight='bold')
+    axes[1].legend(loc='upper left')
     axes[1].grid(True, alpha=0.3)
-    
-    # Plot 3: Epsilon Decay
-    axes[2].plot(episodes, df['epsilon'].values, linewidth=2, color='orange')
+
+    # --- Plot 3: Epsilon Decay ---
+    axes[2].plot(episodes, df['epsilon'].values, linewidth=2, color='orange', label='Epsilon')
+    axes[2].set_ylabel('Exploration Rate', fontsize=12)
     axes[2].set_xlabel('Episode', fontsize=12)
-    axes[2].set_ylabel('Epsilon (Exploration Rate)', fontsize=12)
-    axes[2].set_title(f'{algorithm}: Epsilon Decay', fontsize=14, fontweight='bold')
+    axes[2].set_title('Epsilon Decay Schedule', fontsize=14, fontweight='bold')
     axes[2].grid(True, alpha=0.3)
     
     plt.tight_layout()
-    
-    output_path = os.path.join(save_dir, f'{algorithm}_training_curves.png')
+    output_path = os.path.join(save_dir, f'{algorithm}_training_curves_shaded.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"✓ Saved: {output_path}")
+    print(f"✓ Saved Shaded Plot: {output_path}")
     plt.close()
 
 
@@ -228,35 +240,68 @@ def plot_performance_summary(df, algorithm, save_dir):
 
 
 def plot_algorithm_comparison(data_dict, task, save_dir):
-    """Compare multiple algorithms on the same plot."""
+    """Compare multiple algorithms with variance shading and raw rewards."""
     
     fig, axes = plt.subplots(2, 1, figsize=(14, 10))
     
-    colors = ['blue', 'red', 'green', 'orange', 'purple']
+    colors = {'Q_Learning': 'blue', 'SARSA': 'red', 
+              'Double_Q_Learning': 'green', 'Monte_Carlo': 'orange'}
     
-    for idx, (algorithm, df) in enumerate(data_dict.items()):
-        color = colors[idx % len(colors)]
+    window = 100  # Rolling window for std calculation
+    
+    for algorithm, df in data_dict.items():
+        color = colors.get(algorithm, 'purple')
         episodes = df['episode'].values
         
-        # Plot rewards
-        axes[0].plot(episodes, df['avg_reward_100'].values, linewidth=2.5, 
+        # Calculate rolling std for variance
+        reward_std = df['reward'].rolling(window=window).std()
+        length_std = df['length'].rolling(window=window).std()
+        
+        avg_reward = df['avg_reward_100'].values
+        avg_length = df['avg_length_100'].values
+        
+        # ===== REWARDS PLOT =====
+        # Plot raw rewards (faded background)
+        axes[0].plot(episodes, df['reward'].values, 
+                    alpha=0.15, color=color, linewidth=0.5)
+        
+        # Plot average line (bold)
+        axes[0].plot(episodes, avg_reward, linewidth=2.5, 
                     color=color, label=algorithm)
         
-        # Plot lengths
-        axes[1].plot(episodes, df['avg_length_100'].values, linewidth=2.5,
+        # Add shaded variance region (±1 std)
+        axes[0].fill_between(episodes, 
+                            avg_reward - reward_std, 
+                            avg_reward + reward_std,
+                            color=color, alpha=0.2)
+        
+        # ===== LENGTHS PLOT =====
+        # Plot raw lengths (faded background)
+        axes[1].plot(episodes, df['length'].values,
+                    alpha=0.15, color=color, linewidth=0.5)
+        
+        # Plot average line (bold)
+        axes[1].plot(episodes, avg_length, linewidth=2.5,
                     color=color, label=algorithm)
+        
+        # Add shaded variance region (±1 std)
+        axes[1].fill_between(episodes,
+                            avg_length - length_std,
+                            avg_length + length_std,
+                            color=color, alpha=0.2)
     
-    # Rewards plot
+    # Rewards plot styling
     axes[0].set_xlabel('Episode', fontsize=12)
-    axes[0].set_ylabel('Average Reward (100-ep MA)', fontsize=12)
-    axes[0].set_title(f'{task}: Algorithm Comparison - Rewards', fontsize=14, fontweight='bold')
+    axes[0].set_ylabel('Total Reward', fontsize=12)
+    axes[0].set_title(f'{task}: Algorithm Comparison - Rewards\n(Shaded area = ±1 Standard Deviation)', 
+                     fontsize=14, fontweight='bold')
     axes[0].legend(loc='best', fontsize=11)
     axes[0].grid(True, alpha=0.3)
     
-    # Lengths plot
+    # Lengths plot styling
     axes[1].set_xlabel('Episode', fontsize=12)
-    axes[1].set_ylabel('Average Length (100-ep MA)', fontsize=12)
-    axes[1].set_title(f'{task}: Algorithm Comparison - Episode Lengths', 
+    axes[1].set_ylabel('Episode Length (steps)', fontsize=12)
+    axes[1].set_title(f'{task}: Algorithm Comparison - Episode Lengths\n(Shaded area = ±1 Standard Deviation)', 
                      fontsize=14, fontweight='bold')
     axes[1].legend(loc='best', fontsize=11)
     axes[1].grid(True, alpha=0.3)
@@ -265,8 +310,12 @@ def plot_algorithm_comparison(data_dict, task, save_dir):
     
     output_path = os.path.join(save_dir, f'{task}_algorithm_comparison.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"✓ Saved comparison plot: {output_path}")
+    print(f"✓ Saved comparison plot with variance: {output_path}")
     plt.close()
+
+
+# Copy this function and replace the existing plot_algorithm_comparison() 
+# in your scripts/RL_Algorithm/plot_results.py file
 
 def compare_algorithm_variance(task, save_dir):
     """Compare variance across all algorithms."""
@@ -481,11 +530,11 @@ def main():
             df = load_csv_data(task, algo, project_root)
             if df is not None:
                 data_dict[algo] = df
-                # Generate individual plots
-                print(f"\n📈 Generating plots for {algo}...")
-                plot_training_curves(df, algo, plots_dir)
-                plot_detailed_analysis(df, algo, plots_dir)
-                plot_performance_summary(df, algo, plots_dir)
+                # # Generate individual plots
+                # print(f"\n📈 Generating plots for {algo}...")
+                # plot_training_curves(df, algo, plots_dir)
+                # plot_detailed_analysis(df, algo, plots_dir)
+                # plot_performance_summary(df, algo, plots_dir)
         
         if len(data_dict) > 1:
             print(f"\n📊 Generating comparison plot...")
