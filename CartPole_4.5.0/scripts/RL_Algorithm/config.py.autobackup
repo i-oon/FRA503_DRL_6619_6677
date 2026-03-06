@@ -1,0 +1,445 @@
+# scripts/RL_Algorithm/config.py
+# Enhanced version with 4-value Sensitivity Analysis
+# =============================================================================
+# MODES:
+#   EXPERIMENTAL_MODE = False  → Use baseline (optimized) config
+#   EXPERIMENTAL_MODE = True   → Use experimental config for sensitivity testing
+# =============================================================================
+
+ALGORITHM = "Q_Learning"  # Change this to train different algorithms
+TASK = "Stabilize"
+
+# ============================================================================
+# EXPERIMENTAL DESIGN SETTINGS
+# ============================================================================
+
+# Set to True to run sensitivity analysis experiments
+EXPERIMENTAL_MODE = True
+
+# Which hyperparameter to test (used when EXPERIMENTAL_MODE = True)
+# Options: "learning_rate", "discount_factor", "epsilon_decay"
+TEST_HYPERPARAMETER = "discount_factor"
+
+# Experiment identifier (will be added to output filenames)
+EXPERIMENT_ID = "exp1"
+
+# ============================================================================
+# FIXED PARAMETERS (Same across all experiments)
+# ============================================================================
+
+# Action Space
+NUM_OF_ACTION = 4
+ACTION_RANGE = [-2.5, 2.5]  # Proven to work well!
+
+# State Discretization (critical for performance!)
+# Format: [cart_pos_weight, pole_angle_weight, cart_vel_weight, pole_vel_weight]
+DISCRETIZE_STATE_WEIGHT = [2, 10, 2, 10]  # 48,841 states - Sweet spot!
+
+# Testing Parameters
+N_TEST_EPISODES = 10
+
+ALGORITHM_CONFIGS = {
+    "Q_Learning": {
+        "LEARNING_RATE": 0.08,
+        "DISCOUNT_FACTOR": 0.99,
+        "START_EPSILON": 1.0,
+        "EPSILON_DECAY": 0.9995,
+        "FINAL_EPSILON": 0.15,
+        "N_EPISODES": 40000,
+    },
+    
+    "SARSA": {
+        "LEARNING_RATE": 0.08,    
+        "DISCOUNT_FACTOR": 0.99,
+        "START_EPSILON": 1.0,
+        "EPSILON_DECAY": 0.9997,  
+        "FINAL_EPSILON": 0.15,     
+        "N_EPISODES": 40000,   
+
+    },
+    
+    "Double_Q_Learning": {
+        "LEARNING_RATE": 0.08,    
+        "DISCOUNT_FACTOR": 0.99,
+        "START_EPSILON": 1.0,
+        "EPSILON_DECAY": 0.9997,  
+        "FINAL_EPSILON": 0.15,     
+        "N_EPISODES": 40000,   
+    },
+    
+    "Monte_Carlo": {
+        "LEARNING_RATE": 0.08,    
+        "DISCOUNT_FACTOR": 0.99,
+        "START_EPSILON": 1.0,
+        "EPSILON_DECAY": 0.9995,  
+        "FINAL_EPSILON": 0.15,     
+        "N_EPISODES": 40000,   
+    }
+}
+
+# ============================================================================
+# EXPERIMENTAL CONFIGURATIONS (For Sensitivity Analysis)
+# ============================================================================
+
+# Shorter episodes for faster experiments
+EXPERIMENTAL_EPISODES = 25000
+
+# ===== ENHANCED: 4 values per parameter for clearer impact visibility ===== #
+HYPERPARAMETER_RANGES = {
+    "learning_rate": {
+        "values": [0.03, 0.08, 0.15, 0.25],  # Very Low, Optimal, High, Very High
+        "description": "Learning rate (α) - controls update step size",
+        "test_algorithms": ["Q_Learning", "SARSA", "Double_Q_Learning", "Monte_Carlo"],
+        "expected_impact": "HIGH - Shows inverted-U curve clearly. Too low = slow learning, too high = instability",
+    },
+    
+    "discount_factor": {
+        "values": [0.5, 0.8, 0.95, 0.99],  # Short, Medium, Long, Very Long
+        "description": "Discount factor (γ) - planning horizon",
+        "test_algorithms": ["Q_Learning", "SARSA", "Double_Q_Learning", "Monte_Carlo"],
+        "expected_impact": "HUGE - 3-4× performance difference! Most critical parameter!",
+    },
+    
+    "epsilon_decay": {
+        "values": [0.995, 0.998, 0.9995, 0.9999],  # Very Fast, Fast, Medium, Slow
+        "description": "Epsilon decay rate - exploration strategy",
+        "test_algorithms": ["SARSA"],  # SARSA most sensitive to this
+        "expected_impact": "VERY HIGH for SARSA - On-policy learning extremely sensitive to exploration",
+    },
+}
+# ========================================================================== #
+
+# Get current test configuration
+CURRENT_TEST = HYPERPARAMETER_RANGES.get(TEST_HYPERPARAMETER, {})
+TEST_VALUES = CURRENT_TEST.get("values", [])
+
+# ============================================================================
+# DYNAMIC CONFIGURATION BUILDER
+# ============================================================================
+
+def get_experiment_config(algorithm_name, test_param, test_value):
+    """
+    Build experimental config by varying one hyperparameter.
+    
+    Args:
+        algorithm_name: Name of the algorithm
+        test_param: Which hyperparameter to vary
+        test_value: Value to test
+    
+    Returns:
+        Configuration dictionary with the test value applied
+    """
+    # Start with baseline
+    config = BASELINE_CONFIGS[algorithm_name].copy()
+    
+    # Shorten episodes for experiments
+    config["N_EPISODES"] = EXPERIMENTAL_EPISODES
+    
+    # Apply the test value
+    param_map = {
+        "learning_rate": "LEARNING_RATE",
+        "discount_factor": "DISCOUNT_FACTOR",
+        "epsilon_decay": "EPSILON_DECAY",
+    }
+    
+    config_key = param_map.get(test_param)
+    if config_key:
+        config[config_key] = test_value
+    
+    return config
+
+# ============================================================================
+# SELECT CONFIGURATION MODE
+# ============================================================================
+
+if EXPERIMENTAL_MODE:
+    # Experimental mode: Detect which test value to use from environment or default to first
+    import os
+    
+    # Try to get test value from environment variable (useful for batch scripts)
+    test_value_str = os.environ.get('TEST_VALUE', None)
+    
+    if test_value_str is not None:
+        # Convert string to appropriate type
+        try:
+            TEST_VALUE = float(test_value_str)
+        except ValueError:
+            TEST_VALUE = TEST_VALUES[0] if TEST_VALUES else 0.08
+    else:
+        # Use first value as default
+        TEST_VALUE = TEST_VALUES[0] if TEST_VALUES else 0.08
+    
+    # Build experimental configs
+    ALGORITHM_CONFIGS = {}
+    for algo in ["Q_Learning", "SARSA", "Double_Q_Learning", "Monte_Carlo"]:
+        ALGORITHM_CONFIGS[algo] = get_experiment_config(algo, TEST_HYPERPARAMETER, TEST_VALUE)
+    
+    print(f"\n🔬 EXPERIMENTAL MODE")
+    print(f"   Testing: {TEST_HYPERPARAMETER} = {TEST_VALUE}")
+    print(f"   Episodes: {EXPERIMENTAL_EPISODES} (shortened for speed)")
+    print(f"   Experiment ID: {EXPERIMENT_ID}")
+    
+else:
+    # Normal mode: Use baseline configs
+    ALGORITHM_CONFIGS = BASELINE_CONFIGS
+    print(f"\n✅ BASELINE MODE (Optimized)")
+
+# ============================================================================
+# AUTO-LOAD CONFIG
+# ============================================================================
+
+if ALGORITHM in ALGORITHM_CONFIGS:
+    config = ALGORITHM_CONFIGS[ALGORITHM]
+    LEARNING_RATE = config["LEARNING_RATE"]
+    DISCOUNT_FACTOR = config["DISCOUNT_FACTOR"]
+    START_EPSILON = config["START_EPSILON"]
+    EPSILON_DECAY = config["EPSILON_DECAY"]
+    FINAL_EPSILON = config["FINAL_EPSILON"]
+    N_EPISODES = config["N_EPISODES"]
+    
+    if EXPERIMENTAL_MODE:
+        print(f"   Algorithm: {ALGORITHM}")
+        print(f"   α={LEARNING_RATE}, γ={DISCOUNT_FACTOR}, ε_decay={EPSILON_DECAY}")
+    else:
+        print(f"   Loaded config for {ALGORITHM}")
+        print(f"   α={LEARNING_RATE}, ε_decay={EPSILON_DECAY}, ε_final={FINAL_EPSILON}, episodes={N_EPISODES}")
+else:
+    # Fallback
+    LEARNING_RATE = 0.08
+    DISCOUNT_FACTOR = 0.99
+    START_EPSILON = 1.0
+    EPSILON_DECAY = 0.9997
+    FINAL_EPSILON = 0.05
+    N_EPISODES = 50000
+    print(f"\n⚠️  Using default config for {ALGORITHM}")
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def get_algorithm():
+    """Get the currently selected algorithm name."""
+    return ALGORITHM
+
+def get_task():
+    """Get the currently selected task name."""
+    return TASK
+
+def get_experiment_suffix():
+    """
+    Get suffix for output filenames in experimental mode.
+    Returns empty string in baseline mode.
+    """
+    if not EXPERIMENTAL_MODE:
+        return ""
+    
+    # Create readable suffix
+    param_short = {
+        "learning_rate": "lr",
+        "discount_factor": "gamma",
+        "epsilon_decay": "eps",
+    }
+    
+    short_name = param_short.get(TEST_HYPERPARAMETER, "test")
+    value_str = str(TEST_VALUE).replace(".", "p")  # 0.99 -> 0p99
+    
+    return f"_{EXPERIMENT_ID}_{short_name}_{value_str}"
+
+def get_config(algorithm_name: str = None) -> dict:
+    """
+    Get configuration for a specific algorithm.
+    If algorithm_name is None, uses the global ALGORITHM setting.
+    """
+    if algorithm_name is None:
+        algorithm_name = ALGORITHM
+    
+    config = {
+        "algorithm_name": algorithm_name,
+        "task_name": TASK,
+        "num_of_action": NUM_OF_ACTION,
+        "action_range": ACTION_RANGE,
+        "discretize_state_weight": DISCRETIZE_STATE_WEIGHT,
+        "learning_rate": LEARNING_RATE,
+        "discount_factor": DISCOUNT_FACTOR,
+        "start_epsilon": START_EPSILON,
+        "epsilon_decay": EPSILON_DECAY,
+        "final_epsilon": FINAL_EPSILON,
+        "n_episodes": N_EPISODES,
+        "n_test_episodes": N_TEST_EPISODES,
+        "experimental_mode": EXPERIMENTAL_MODE,
+        "experiment_suffix": get_experiment_suffix(),
+    }
+    
+    # Apply algorithm-specific overrides
+    if algorithm_name in ALGORITHM_CONFIGS:
+        config.update(ALGORITHM_CONFIGS[algorithm_name])
+    
+    return config
+
+def print_config(algorithm_name: str = None):
+    """Print configuration for an algorithm."""
+    if algorithm_name is None:
+        algorithm_name = ALGORITHM
+    
+    config = get_config(algorithm_name)
+    
+    print("\n" + "="*70)
+    if EXPERIMENTAL_MODE:
+        print(f"🔬 EXPERIMENTAL CONFIGURATION")
+        print(f"   Experiment: {EXPERIMENT_ID}")
+        print(f"   Testing: {TEST_HYPERPARAMETER} = {TEST_VALUE}")
+    else:
+        print(f"✅ BASELINE CONFIGURATION")
+    print("="*70)
+    print(f"Algorithm:       {config['algorithm_name']}")
+    print(f"Task:            {config['task_name']}")
+    print(f"Episodes:        {config['n_episodes']}")
+    print(f"Learning Rate:   {config['learning_rate']}")
+    print(f"Discount Factor: {config['discount_factor']}")
+    print(f"Epsilon Decay:   {config['epsilon_decay']}")
+    print(f"Final Epsilon:   {config['final_epsilon']}")
+    print(f"Actions:         {config['num_of_action']} (range: {config['action_range']})")
+    print(f"Discretization:  {config['discretize_state_weight']}")
+    if EXPERIMENTAL_MODE:
+        print(f"Output Suffix:   {get_experiment_suffix()}")
+    print("="*70 + "\n")
+
+def print_experiment_plan():
+    """Print the full experimental design plan."""
+    if not EXPERIMENTAL_MODE:
+        print("⚠️  Not in experimental mode. Set EXPERIMENTAL_MODE = True to see plan.")
+        return
+    
+    print("\n" + "="*70)
+    print("📊 SENSITIVITY ANALYSIS EXPERIMENTAL PLAN")
+    print("="*70)
+    
+    test_info = HYPERPARAMETER_RANGES[TEST_HYPERPARAMETER]
+    
+    print(f"\nHyperparameter: {TEST_HYPERPARAMETER}")
+    print(f"Description:    {test_info['description']}")
+    print(f"Test Values:    {test_info['values']}")
+    print(f"Algorithms:     {', '.join(test_info['test_algorithms'])}")
+    print(f"Episodes/Run:   {EXPERIMENTAL_EPISODES}")
+    print(f"Expected Impact: {test_info.get('expected_impact', 'N/A')}")
+    
+    n_runs = len(test_info['values']) * len(test_info['test_algorithms'])
+    total_hours = n_runs * (EXPERIMENTAL_EPISODES / 50000) * 6  # Rough estimate
+    
+    print(f"\nTotal Runs:     {n_runs}")
+    print(f"Est. Time:      {total_hours:.1f} hours")
+    
+    print("\n" + "="*70 + "\n")
+
+def get_agent_class(algorithm_name: str = None):
+    """Get the agent class for the specified algorithm."""
+    if algorithm_name is None:
+        algorithm_name = ALGORITHM
+
+    from RL_Algorithm.Algorithm.Q_Learning import Q_Learning
+    from RL_Algorithm.Algorithm.SARSA import SARSA
+    from RL_Algorithm.Algorithm.Double_Q_Learning import Double_Q_Learning
+    from RL_Algorithm.Algorithm.MC import MC
+    
+    algorithm_map = {
+        "Q_Learning": Q_Learning,
+        "SARSA": SARSA,
+        "Double_Q_Learning": Double_Q_Learning,
+        "Monte_Carlo": MC,
+    }
+    
+    if algorithm_name not in algorithm_map:
+        raise ValueError(f"Unknown algorithm: {algorithm_name}. "
+                        f"Choose from: {list(algorithm_map.keys())}")
+    
+    return algorithm_map[algorithm_name]
+
+def create_agent(algorithm_name: str = None, testing: bool = False):
+    """
+    Create an agent with the correct configuration.
+    
+    Args:
+        algorithm_name: Name of algorithm (uses ALGORITHM if None)
+        testing: If True, sets epsilon=0 (no exploration)
+    
+    Returns:
+        Configured agent instance
+    """
+    if algorithm_name is None:
+        algorithm_name = ALGORITHM
+    
+    config = get_config(algorithm_name)
+    AgentClass = get_agent_class(algorithm_name)
+    
+    # Override epsilon for testing
+    if testing:
+        start_epsilon = 0.0
+        epsilon_decay = 1.0
+        final_epsilon = 0.0
+    else:
+        start_epsilon = config['start_epsilon']
+        epsilon_decay = config['epsilon_decay']
+        final_epsilon = config['final_epsilon']
+    
+    agent = AgentClass(
+        num_of_action=config['num_of_action'],
+        action_range=config['action_range'],
+        discretize_state_weight=config['discretize_state_weight'],
+        learning_rate=config['learning_rate'],
+        initial_epsilon=start_epsilon,
+        epsilon_decay=epsilon_decay,
+        final_epsilon=final_epsilon,
+        discount_factor=config['discount_factor']
+    )
+    
+    return agent
+
+# ============================================================================
+# TESTING & INFO
+# ============================================================================
+
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("🔧 CONFIGURATION TESTER")
+    print("="*70)
+    
+    print_config()
+    
+    if EXPERIMENTAL_MODE:
+        print_experiment_plan()
+        
+        print("\n💡 To run experiments, use:")
+        print(f"   TEST_VALUE=0.5 python train.py")
+        print(f"   TEST_VALUE=0.8 python train.py")
+        print(f"   TEST_VALUE=0.95 python train.py")
+        print(f"   TEST_VALUE=0.99 python train.py")
+    else:
+        print("\n💡 To enable experimental mode:")
+        print("   1. Set EXPERIMENTAL_MODE = True")
+        print("   2. Set TEST_HYPERPARAMETER = 'discount_factor'")
+        print("   3. Run: TEST_VALUE=0.5 python train.py")
+        
+    # ===== ENHANCED: Show complete experimental plan ===== #
+    print("\n" + "="*70)
+    print("📊 COMPLETE EXPERIMENTAL DESIGN OVERVIEW")
+    print("="*70)
+    
+    for param_name, param_info in HYPERPARAMETER_RANGES.items():
+        n_runs = len(param_info['values']) * len(param_info['test_algorithms'])
+        est_time = n_runs * (EXPERIMENTAL_EPISODES / 50000) * 2.5
+        
+        print(f"\n{param_name.upper().replace('_', ' ')}:")
+        print(f"  Values: {param_info['values']}")
+        print(f"  Algorithms: {len(param_info['test_algorithms'])} ({', '.join(param_info['test_algorithms'])})")
+        print(f"  Runs: {n_runs}")
+        print(f"  Time: ~{est_time:.1f} hours")
+        print(f"  Impact: {param_info.get('expected_impact', 'N/A')}")
+    
+    total_runs = sum(len(info['values']) * len(info['test_algorithms']) 
+                     for info in HYPERPARAMETER_RANGES.values())
+    total_time = total_runs * (EXPERIMENTAL_EPISODES / 50000) * 2.5
+    
+    print(f"\n{'='*70}")
+    print(f"TOTAL: {total_runs} runs, ~{total_time:.1f} hours sequential")
+    print(f"       or ~{total_time/3:.1f} hours with 3 parallel processes")
+    print(f"{'='*70}\n")

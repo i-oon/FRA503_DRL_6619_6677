@@ -3,8 +3,8 @@ ALGORITHM = "Q_Learning"  # Change this to train different algorithms
 TASK = "Stabilize"
 
 # Action Space
-NUM_OF_ACTION = 2
-ACTION_RANGE = [-2.5, 2.5]  # Proven to work well!
+NUM_OF_ACTION = 4
+ACTION_RANGE = [-1.5, 1.5]  # Proven to work well!
 
 # State Discretization (critical for performance!)
 # Format: [cart_pos_weight, pole_angle_weight, cart_vel_weight, pole_vel_weight]
@@ -15,22 +15,21 @@ N_TEST_EPISODES = 10
 
 ALGORITHM_CONFIGS = {
     "Q_Learning": {
-        "LEARNING_RATE": 0.08,    
+        "LEARNING_RATE": 0.1,
         "DISCOUNT_FACTOR": 0.99,
         "START_EPSILON": 1.0,
-        "EPSILON_DECAY": 0.998,  
-        "FINAL_EPSILON": 0.15,     
-        "N_EPISODES": 40000,   
-
+        "EPSILON_DECAY": 0.9995,
+        "FINAL_EPSILON": 0.05,
+        "N_EPISODES": 50000,
     },
     
     "SARSA": {
         "LEARNING_RATE": 0.08,    
         "DISCOUNT_FACTOR": 0.99,
         "START_EPSILON": 1.0,
-        "EPSILON_DECAY": 0.998,  
-        "FINAL_EPSILON": 0.15,     
-        "N_EPISODES": 40000,   
+        "EPSILON_DECAY": 0.9997,  
+        "FINAL_EPSILON": 0.05,     
+        "N_EPISODES": 50000,   
 
     },
     
@@ -38,18 +37,18 @@ ALGORITHM_CONFIGS = {
         "LEARNING_RATE": 0.08,    
         "DISCOUNT_FACTOR": 0.99,
         "START_EPSILON": 1.0,
-        "EPSILON_DECAY": 0.998,  
-        "FINAL_EPSILON": 0.15,     
-        "N_EPISODES": 40000,   
+        "EPSILON_DECAY": 0.9997,  
+        "FINAL_EPSILON": 0.05,     
+        "N_EPISODES": 50000,   
     },
     
     "Monte_Carlo": {
-        "LEARNING_RATE": 0.08,    
+        "LEARNING_RATE": 0.12,    
         "DISCOUNT_FACTOR": 0.99,
         "START_EPSILON": 1.0,
-        "EPSILON_DECAY": 0.998,  
-        "FINAL_EPSILON": 0.15,     
-        "N_EPISODES": 40000,   
+        "EPSILON_DECAY": 0.9995,  
+        "FINAL_EPSILON": 0.08,     
+        "N_EPISODES": 60000,   
     }
 }
 
