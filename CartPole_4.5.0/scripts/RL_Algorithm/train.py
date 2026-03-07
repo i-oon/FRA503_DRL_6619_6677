@@ -126,13 +126,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     config = get_config()  # Uses global ALGORITHM setting
     print_config()         # Print configuration
     
-    # ===== MODIFICATION 1: Get experiment suffix ===== #
-    # Get experiment suffix for separate file saving (experimental mode)
-    experiment_suffix = config.get('experiment_suffix', '')
-    if experiment_suffix:
-        print(f"🔬 Experimental Mode: {experiment_suffix}")
-    # ================================================= #
-    
     # Extract task name from args
     task_name = str(args_cli.task).split('-')[0]
     
@@ -157,15 +150,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     script_dir = os.path.dirname(__file__)
     project_root = os.path.join(script_dir, "..", "..")
 
-    # ===== MODIFICATION 2 & 3: Add experiment suffix to directory names ===== #
-    # Add experiment suffix to directory name for separate file storage
-    if experiment_suffix:
-        logs_dir = os.path.join(project_root, "logs", task_name, f"{Algorithm_name}{experiment_suffix}")
-        q_value_dir = os.path.join(project_root, "q_value", task_name, f"{Algorithm_name}{experiment_suffix}")
-    else:
-        logs_dir = os.path.join(project_root, "logs", task_name, Algorithm_name)
-        q_value_dir = os.path.join(project_root, "q_value", task_name, Algorithm_name)
-    # ======================================================================= #
+    logs_dir = os.path.join(project_root, "logs", task_name, Algorithm_name)
+    q_value_dir = os.path.join(project_root, "q_value", task_name, Algorithm_name)
 
     os.makedirs(logs_dir, exist_ok=True)
     os.makedirs(q_value_dir, exist_ok=True)

@@ -123,6 +123,12 @@ class RewardsCfg:
         weight=-0.1,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=["cart_to_pole"]), "target": 0.0},
     )
+    # (4) Target of Cart Pole: drive x, x_dot, theta, theta_dot to 0
+    state_to_zero = RewTerm(
+        func=mdp.cart_pole_state_penalty,
+        weight=-0.05, # Adjust this weight based on how strictly you want it centered
+        params={"asset_cfg": SceneEntityCfg("robot")}, # Target the whole robot to get both joints
+    )
 
 @configclass
 

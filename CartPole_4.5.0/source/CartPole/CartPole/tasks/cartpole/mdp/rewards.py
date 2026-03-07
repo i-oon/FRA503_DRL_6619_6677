@@ -27,6 +27,31 @@ def joint_pos_target_l2(env: ManagerBasedRLEnv, target: float, asset_cfg: SceneE
     # compute the reward
     return torch.sum(torch.square(joint_pos - target), dim=1)
 
+def cart_pole_state_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize deviation of all cart-pole states (x, theta, x_dot, theta_dot) from zero."""
+    # Extract the articulation asset
+    asset: Articulation = env.scene[asset_cfg.name]
+    
+    # Extract positions (assuming joint 0 is cart, joint 1 is pole)
+    cart_pos = asset.data.joint_pos[:, 0]
+    pole_pos = wrap_to_pi(asset.data.joint_pos[:, 1]) 
+    
+    # Extract velocities
+    cart_vel = asset.data.joint_vel[:, 0]
+    pole_vel = asset.data.joint_vel[:, 1]
+    
+    # Calculate sum of squared deviations from 0
+    # Note: You can add individual scaling weights here if you want to prioritize 
+    # balancing the pole over centering the cart, for example.
+    penalty = (
+        torch.square(cart_pos) + 
+        torch.square(pole_pos) + 
+        torch.square(cart_vel) + 
+        torch.square(pole_vel)
+    )
+                    
+    return penalty
+
 def swing_up(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """Penalize joint position deviation from a target value."""
     # extract the used quantities (to enable type-hinting)

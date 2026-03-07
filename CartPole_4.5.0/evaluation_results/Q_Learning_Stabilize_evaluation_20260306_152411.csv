@@ -1,0 +1,11 @@
+episode,reward,length_steps,length_seconds,success,termination_reason
+1,341.44460850954056,350,3.5,False,failure
+2,153.0103115439415,162,1.62,False,failure
+3,121.76137983798981,131,1.31,False,failure
+4,213.70534348487854,219,2.19,False,failure
+5,305.3821539282799,311,3.11,False,failure
+6,145.2170877456665,150,1.5,False,failure
+7,190.4364282488823,195,1.95,False,failure
+8,67.91176187992096,75,0.75,False,failure
+9,49.343342900276184,56,0.56,False,failure
+10,80.08967864513397,88,0.88,False,failure
