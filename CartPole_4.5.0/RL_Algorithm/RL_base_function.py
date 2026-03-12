@@ -28,13 +28,13 @@ class BaseAlgorithm:
 
     def __init__(
         self,
-        num_of_action: int = 2,
-        action_range: list = [-2.0, 2.0],
-        learning_rate: float = 1e-3,
-        initial_epsilon: float = 1.0,
-        epsilon_decay: float = 1e-3,
-        final_epsilon: float = 0.001,
-        discount_factor: float = 0.95,
+        num_of_action: int = None,
+        action_range: list = [None, None],
+        learning_rate: float = None,
+        initial_epsilon: float = None,
+        epsilon_decay: float = None,
+        final_epsilon: float = None,
+        discount_factor: float = None,
     ):
         self.lr              = learning_rate
         self.discount_factor = discount_factor
@@ -56,9 +56,6 @@ class BaseAlgorithm:
         """
         Map a discrete action index [0, n-1] to a continuous value in
         [action_min, action_max].
-
-        Used by Linear_QN and DQN to convert network output / table index
-        into an action the Isaac Lab environment can consume.
 
         Args:
             action (int): Discrete action index in [0, num_of_action - 1].

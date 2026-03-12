@@ -32,10 +32,10 @@ class ActorCritic(nn.Module):
         self,
         state_dim: int,
         action_dim: int,
-        hidden_dims: list[int] = [256, 256, 256],
-        activation: str = "elu",
-        action_type: str = "continuous",
-        init_noise_std: float = 1.0,
+        hidden_dims: list[int] = [None],
+        activation: str = None,
+        action_type: str = None,
+        init_noise_std: float = None,
     ):
         super().__init__()
 
@@ -154,18 +154,18 @@ class AC(OnPolicyAlgorithm):
     def __init__(
         self,
         device=None,
-        num_of_action: int = 1,
-        action_range: list = [-3.0, 3.0],
-        n_observations: int = 5,
-        hidden_dims: list[int] = [256, 256, 256],
-        activation: str = "elu",
-        action_type: str = "continuous",
-        init_noise_std: float = 1.0,
-        learning_rate: float = 1e-3,
-        discount_factor: float = 0.99,
-        value_loss_coef: float = 0.5,
-        entropy_coef: float = 0.01,
-        max_grad_norm: float = 1.0,
+        num_of_action: int = None,
+        action_range: list = [None, None],
+        n_observations: int = None,
+        hidden_dims: list[int] = [None],
+        activation: str = None,
+        action_type: str = None,
+        init_noise_std: float = None,
+        learning_rate: float = None,
+        discount_factor: float = None,
+        value_loss_coef: float = None,
+        entropy_coef: float = None,
+        max_grad_norm: float = None,
     ) -> None:
 
         self.device = device if device is not None else torch.device(

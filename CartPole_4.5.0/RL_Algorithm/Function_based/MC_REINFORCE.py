@@ -95,14 +95,14 @@ class MC_REINFORCE(BaseAlgorithm):
     def __init__(
             self,
             device=None,
-            num_of_action: int = 2,
-            action_range: list = [-2.5, 2.5],
-            n_observations: int = 4,
-            hidden_dim: int = 64,
-            dropout: float = 0.5,
-            action_type: str = "discrete",
-            learning_rate: float = 0.01,
-            discount_factor: float = 0.95,
+            num_of_action: int = None,
+            action_range: list = [None, None],
+            n_observations: int = None,
+            hidden_dim: int = None,
+            dropout: float = None,
+            action_type: str = None,
+            learning_rate: float = None,
+            discount_factor: float = None,
     ) -> None:
 
         assert action_type in ("discrete", "continuous"), \
