@@ -1,38 +1,92 @@
-# Copyright (c) 2021-2026, ETH Zurich and NVIDIA CORPORATION
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
-
 from __future__ import annotations
 
 import torch
 import torch.nn as nn
 from functools import reduce
-
-from rsl_rl.utils import resolve_nn_activation
 from typing import Any
 
-def get_param(param: Any, idx: int) -> Any:
-    """Get a parameter for the given index.
+
+# ============================================================ #
+# ================== Activation Helper ======================= #
+# ============================================================ #
+
+_ACTIVATION_MAP = {
+    "elu":     nn.ELU,
+    "relu":    nn.ReLU,
+    "tanh":    nn.Tanh,
+    "sigmoid": nn.Sigmoid,
+    "leaky_relu": nn.LeakyReLU,
+    "selu":    nn.SELU,
+}
+
+def resolve_nn_activation(name: str) -> nn.Module:
+    """
+    Instantiate an activation module by name.
 
     Args:
-        param: Parameter or list/tuple of parameters.
-        idx: Index to get the parameter for.
+        name (str): Activation function name (case-insensitive).
+                    Supported: 'elu', 'relu', 'tanh', 'sigmoid', 'leaky_relu', 'selu'.
+
+    Returns:
+        nn.Module: Instantiated activation module.
+
+    Raises:
+        ValueError: If the activation name is not recognised.
+    """
+    act_cls = _ACTIVATION_MAP.get(name.lower())
+    if act_cls is None:
+        raise ValueError(
+            f"Unknown activation '{name}'. Choose from: {list(_ACTIVATION_MAP.keys())}"
+        )
+    return act_cls()
+
+
+def get_param(param: Any, idx: int) -> Any:
+    """
+    Retrieve a parameter by index, or return it directly if it is a scalar.
+
+    Used by init_weights() to support both a single shared scale and
+    per-layer scale tuples.
+
+    Args:
+        param (Any): A scalar value or a list/tuple of values.
+        idx (int): Index to retrieve when param is a sequence.
+
+    Returns:
+        Any: The parameter value for the given index.
     """
     if isinstance(param, (tuple, list)):
         return param[idx]
-    else:
-        return param
+    return param
+
+
+# ============================================================ #
+# ========================= MLP ============================== #
+# ============================================================ #
 
 class MLP(nn.Sequential):
-    """Multi-layer perceptron.
+    """
+    Multi-layer perceptron (MLP) built as an nn.Sequential.
 
-    The MLP network is a sequence of linear layers and activation functions. The last layer is a linear layer that
-    outputs the desired dimension unless the last activation function is specified.
+    Architecture:
+        Linear → Activation → ... → Linear → Activation → Linear → (optional last activation)
 
-    It provides additional conveniences:
-    - If the hidden dimensions have a value of ``-1``, the dimension is inferred from the input dimension.
-    - If the output dimension is a tuple, the output is reshaped to the desired shape.
+    Conveniences:
+        - Hidden dim of ``-1`` is replaced with ``input_dim`` (identity-width layer).
+        - ``output_dim`` can be a tuple/list, in which case the final linear output
+          is reshaped via nn.Unflatten.
+        - An optional ``last_activation`` can be appended after the output layer.
+
+    Args:
+        input_dim (int): Number of input features.
+        output_dim (int | tuple[int] | list[int]): Output dimension(s).
+            Pass an int for a flat output, or a tuple/list for a shaped output.
+        hidden_dims (tuple[int] | list[int]): Sizes of the hidden layers.
+            Use -1 to inherit input_dim for that layer.
+        activation (str): Activation function applied after every hidden layer.
+            Default: 'elu'.
+        last_activation (str | None): Optional activation after the output layer.
+            None (default) leaves the output layer linear.
     """
 
     def __init__(
@@ -43,56 +97,51 @@ class MLP(nn.Sequential):
         activation: str = "elu",
         last_activation: str | None = None,
     ) -> None:
-        """Initialize the MLP.
-
-        Args:
-            input_dim: Dimension of the input.
-            output_dim: Dimension of the output.
-            hidden_dims: Dimensions of the hidden layers. A value of ``-1`` indicates that the dimension should be
-                inferred from the input dimension.
-            activation: Activation function.
-            last_activation: Activation function of the last layer. None results in a linear last layer.
-        """
         super().__init__()
 
-        # Resolve activation functions
-        activation_mod = resolve_nn_activation(activation)
+        # ===== Resolve activation functions ===== #
+        activation_mod      = resolve_nn_activation(activation)
         last_activation_mod = resolve_nn_activation(last_activation) if last_activation is not None else None
-        # Resolve number of hidden dims if they are -1
+
+        # ===== Replace -1 hidden dims with input_dim ===== #
         hidden_dims_processed = [input_dim if dim == -1 else dim for dim in hidden_dims]
 
-        # Create layers sequentially
+        # ===== Build layers ===== #
         layers = []
+
+        # Input → first hidden
         layers.append(nn.Linear(input_dim, hidden_dims_processed[0]))
         layers.append(activation_mod)
 
-        for layer_index in range(len(hidden_dims_processed) - 1):
-            layers.append(nn.Linear(hidden_dims_processed[layer_index], hidden_dims_processed[layer_index + 1]))
+        # Hidden → hidden
+        for i in range(len(hidden_dims_processed) - 1):
+            layers.append(nn.Linear(hidden_dims_processed[i], hidden_dims_processed[i + 1]))
             layers.append(activation_mod)
 
-        # Add last layer
+        # Last hidden → output
         if isinstance(output_dim, int):
             layers.append(nn.Linear(hidden_dims_processed[-1], output_dim))
         else:
-            # Compute the total output dimension
             total_out_dim = reduce(lambda x, y: x * y, output_dim)
-            # Add a layer to reshape the output to the desired shape
             layers.append(nn.Linear(hidden_dims_processed[-1], total_out_dim))
             layers.append(nn.Unflatten(dim=-1, unflattened_size=output_dim))
 
-        # Add last activation function if specified
+        # Optional last activation
         if last_activation_mod is not None:
             layers.append(last_activation_mod)
 
-        # Register the layers
+        # ===== Register all layers ===== #
         for idx, layer in enumerate(layers):
-            self.add_module(f"{idx}", layer)
+            self.add_module(str(idx), layer)
 
-    def init_weights(self, scales: float | tuple[float]) -> None:
-        """Initialize the weights of the MLP.
+    def init_weights(self, scales: float | tuple[float] = 1.0) -> None:
+        """
+        Initialise linear layer weights with orthogonal initialisation.
 
         Args:
-            scales: Scale factor for the weights.
+            scales (float | tuple[float]): Orthogonal gain(s). Pass a single float
+                to apply the same scale to every layer, or a tuple with one value
+                per linear layer for per-layer control.
         """
         for idx, module in enumerate(self):
             if isinstance(module, nn.Linear):
@@ -100,7 +149,15 @@ class MLP(nn.Sequential):
                 nn.init.zeros_(module.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass of the MLP."""
+        """
+        Forward pass through all layers.
+
+        Args:
+            x (Tensor): Input tensor of shape (..., input_dim).
+
+        Returns:
+            Tensor: Output tensor of shape (..., output_dim).
+        """
         for layer in self:
             x = layer(x)
         return x
