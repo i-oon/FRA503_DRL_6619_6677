@@ -10,8 +10,6 @@ from isaaclab.app import AppLauncher
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from RL_Algorithm.Function_Aproximation.DQN import DQN
-
 from tqdm import tqdm
 
 # add argparse arguments
@@ -23,7 +21,6 @@ parser.add_argument("--num_envs", type=int, default=1, help="Number of environme
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
-
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -44,18 +41,9 @@ simulation_app = app_launcher.app
 
 import gymnasium as gym
 import torch
-from datetime import datetime
 import random
-
 import matplotlib
 import matplotlib.pyplot as plt
-from collections import namedtuple, deque
-from itertools import count
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-import numpy as np
-
 
 from isaaclab.envs import (
     DirectMARLEnv,
@@ -64,11 +52,9 @@ from isaaclab.envs import (
     ManagerBasedRLEnvCfg,
     multi_agent_to_single_agent,
 )
-# from omni.isaac.lab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
-# Import extensions to set up environment tasks
 import CartPole.tasks  # noqa: F401
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -76,20 +62,16 @@ torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
 
-steps_done = 0
 
 @hydra_task_config(args_cli.task, "sb3_cfg_entry_point")
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
     """Train with stable-baselines agent."""
+
     # randomly sample a seed if seed = -1
     if args_cli.seed == -1:
         args_cli.seed = random.randint(0, 10000)
 
-    # override configurations with non-hydra CLI arguments
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
-
-    # set the environment seed
-    # note: certain randomizations occur in the environment initialization so we set the seed here
     env_cfg.seed = agent_cfg["seed"]
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
@@ -99,91 +81,117 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # ==================================================================== #
     # ========================= Can be modified ========================== #
 
-    # hyperparameters
-    num_of_action = None
-    action_range = [None, None]  
-    learning_rate = None
-    hidden_dim = None
-    n_episodes = None
-    initial_epsilon = None
-    epsilon_decay = None  
-    final_epsilon = None
-    discount = None
-    buffer_size = None
-    batch_size = None
+    # from RL_Algorithm.Function_based.Linear_Q    import Linear_QN     as Algorithm
+    # from RL_Algorithm.Function_based.DQN          import DQN           as Algorithm
+    # from RL_Algorithm.Function_based.MC_REINFORCE import MC_REINFORCE  as Algorithm
+    # from RL_Algorithm.Function_based.AC            import AC            as Algorithm
+    # from RL_Algorithm.Function_based.PPO           import PPO           as Algorithm
 
-
-    # set up matplotlib
-    is_ipython = 'inline' in matplotlib.get_backend()
-    if is_ipython:
-        from IPython import display
-
-    plt.ion()
-
-    # if GPU is to be used
+    # ------------------------------------------------------------------ #
+    # Device & naming
+    # ------------------------------------------------------------------ #
     device = torch.device(
         "cuda" if torch.cuda.is_available() else
-        "mps" if torch.backends.mps.is_available() else
+        "mps"  if torch.backends.mps.is_available() else
         "cpu"
     )
+    print("device:", device)
 
-    print("device: ", device)
+    task_name      = str(args_cli.task).split("-")[0]   # "Stabilize" or "SwingUp"
+    Algorithm_name = "DQN"                              # update this to match your import
 
-    task_name = str(args_cli.task).split('-')[0]  # Stabilize, SwingUp
-    Algorithm_name = "DQN"
+    # ------------------------------------------------------------------ #
+    # Hyperparameters
+    # ------------------------------------------------------------------ #
 
-    agent = DQN(
-        device=device,
-        num_of_action=num_of_action,
-        action_range=action_range,
-        learning_rate=learning_rate,
-        hidden_dim=hidden_dim,
-        initial_epsilon = initial_epsilon,
-        epsilon_decay = epsilon_decay,
-        final_epsilon = final_epsilon,
-        discount_factor = discount,
-        buffer_size = buffer_size,
-        batch_size = batch_size,
-    )
+    # Shared by all algorithms
+    num_of_action   = None
+    action_range    = [None, None]
+    learning_rate   = None
+    discount_factor = None
+    n_episodes      = None
 
-    # reset environment
+    # Exploration — LinearQ, DQN only
+    initial_epsilon = None
+    epsilon_decay   = None
+    final_epsilon   = None
+
+    # Network size — neural-network algorithms (DQN, MC_REINFORCE, AC, PPO)
+    n_observations  = None
+
+    hidden_dim      = None      # single int for DQN / MC_REINFORCE
+    hidden_dims     = [None]    # list of ints for AC / PPO   
+
+    dropout         = None
+
+    # Action Type — (MC_REINFORCE, AC, PPO)
+    action_type     = None      # "continuous" | "discrete" 
+
+    # Replay buffer — DQN only
+    buffer_size     = None
+    batch_size      = None
+    tau             = None      # Polyak soft-update rate for target network
+
+    # Rollout — PPO only
+    num_transitions_per_env = None   # steps collected per env before each update
+    num_learning_epochs     = None   # gradient epochs per update
+    num_mini_batches        = None
+    clip_param              = None
+    lam                     = None   # GAE lambda
+    value_loss_coef         = None
+    entropy_coef            = None
+    max_grad_norm           = None
+    desired_kl              = None   # adaptive LR target; set 0 for discrete
+
+    # ------------------------------------------------------------------ #
+    # Agent construction
+    # ------------------------------------------------------------------ #
+    agent = None #Algorithm
+
+    # ------------------------------------------------------------------ #
+    # Save path — checkpoints saved every save_interval episodes
+    # ------------------------------------------------------------------ #
+    save_interval = 500
+    model_dir     = os.path.join("model", task_name, Algorithm_name)
+    os.makedirs(model_dir, exist_ok=True)
+
     obs, _ = env.reset()
     timestep = 0
-    # simulate environment
+
     while simulation_app.is_running():
-        # run everything in inference mode
-        # with torch.inference_mode():
-        
+
         for episode in tqdm(range(n_episodes)):
-            agent.lean(env)
 
-        if episode % 100 == 0:
-            print(agent.epsilon)
+            # ========= put your code here ========= #
+            pass
+            # ====================================== #
 
-            # Save Q-Learning agent
-            w_file = f"{Algorithm_name}_{episode}_{num_of_action}_{action_range[1]}.json"
-            full_path = os.path.join(f"w/{task_name}", Algorithm_name)
-            agent.save_w(full_path, w_file)
-        
-        print('Complete')
+            # Logging & checkpointing
+            if episode % 100 == 0:
+                print(f"[{Algorithm_name}] episode {episode}")
+
+            if episode % save_interval == 0 and episode > 0:
+                agent.save_model(model_dir, f"{Algorithm_name}_{episode}.pth")
+
+        # Save final model and display training curve
+        agent.save_model(model_dir, f"{Algorithm_name}_final.pth")
+        print("Training complete.")
+
         agent.plot_durations(show_result=True)
         plt.ioff()
         plt.show()
-            
+
         if args_cli.video:
             timestep += 1
-            # Exit the play loop after recording one video
             if timestep == args_cli.video_length:
                 break
 
         break
     # ==================================================================== #
 
-    # close the simulator
     env.close()
 
+
 if __name__ == "__main__":
-    # run the main function
     main()
-    # close sim app
     simulation_app.close()
