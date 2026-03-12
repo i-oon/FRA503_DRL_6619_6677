@@ -1,9 +1,24 @@
 from __future__ import annotations
+import os
 import numpy as np
+import torch
 from RL_Algorithm.RL_base_function import BaseAlgorithm
 
 
 class Linear_QN(BaseAlgorithm):
+    """
+    Linear Q-Learning with function approximation.
+
+    Args:
+        num_of_action (int): Number of discrete actions.
+        action_range (list): [min, max] continuous action range.
+        learning_rate (float): TD weight-update step size.
+        initial_epsilon (float): Starting exploration rate.
+        epsilon_decay (float): Per-step epsilon decay.
+        final_epsilon (float): Minimum exploration rate.
+        discount_factor (float): Discount factor γ.
+    """
+
     def __init__(
             self,
             num_of_action: int = 2,
@@ -14,16 +29,6 @@ class Linear_QN(BaseAlgorithm):
             final_epsilon: float = 0.001,
             discount_factor: float = 0.95,
     ) -> None:
-        """
-        Initialize the CartPole Agent.
-
-        Args:
-            learning_rate (float): The learning rate for updating Q-values.
-            initial_epsilon (float): The initial exploration rate.
-            epsilon_decay (float): The rate at which epsilon decays over time.
-            final_epsilon (float): The final exploration rate.
-            discount_factor (float, optional): The discount factor for future rewards. Defaults to 0.95.
-        """        
 
         super().__init__(
             num_of_action=num_of_action,
@@ -34,7 +39,35 @@ class Linear_QN(BaseAlgorithm):
             final_epsilon=final_epsilon,
             discount_factor=discount_factor,
         )
-        
+
+        # ===== Linear weight matrix ===== #
+        # Shape: (obs_feature_dim, num_of_action)
+        self.w = np.zeros((4, num_of_action))
+
+    # ------------------------------------------------------------------ #
+    # Linear Q-value estimation                                           #
+    # ------------------------------------------------------------------ #
+
+    def q(self, obs, a=None):
+        """
+        Return the linearly-estimated Q-value(s) for a given observation.
+
+        Args:
+            obs: State feature vector φ(s), shape (obs_dim,).
+            a (int | None): Action index. If None, returns Q for all actions
+                            as a 1-D array of shape (num_of_action,).
+
+        Returns:
+            float | np.ndarray: Q(s, a) scalar, or Q(s, :) array.
+        """
+        # ========= put your code here ========= #
+        pass
+        # ====================================== #
+
+    # ------------------------------------------------------------------ #
+    # Core algorithm methods                                               #
+    # ------------------------------------------------------------------ #
+
     def update(
         self,
         obs,
@@ -42,20 +75,18 @@ class Linear_QN(BaseAlgorithm):
         reward: float,
         next_obs,
         next_action: int,
-        terminated: bool
+        terminated: bool,
     ):
         """
-        Updates the weight vector using the Temporal Difference (TD) error 
-        in Q-learning with linear function approximation.
+        Update the weight vector using the TD error.
 
         Args:
-            obs (dict): The current state observation, containing feature representations.
-            action (int): The action taken in the current state.
-            reward (float): The reward received for taking the action.
-            next_obs (dict): The next state observation.
-            next_action (int): The action taken in the next state (used in SARSA).
-            terminated (bool): Whether the episode has ended.
-
+            obs: Current state feature vector φ(s).
+            action (int): Action index taken in state s.
+            reward (float): Reward received.
+            next_obs: Next state feature vector φ(s').
+            next_action (int): Next action taken (for SARSA-style update).
+            terminated (bool): True if the episode ended.
         """
         # ========= put your code here ========= #
         pass
@@ -63,38 +94,57 @@ class Linear_QN(BaseAlgorithm):
 
     def select_action(self, state):
         """
-        Select an action based on an epsilon-greedy policy.
-        
+        Select an action using an epsilon-greedy policy over Q(s, :).
+
         Args:
-            state (Tensor): The current state of the environment.
-        
+            state: Current state feature vector φ(s).
+
         Returns:
-            Tensor: The selected action.
+            Tuple[Tensor, int]: Scaled continuous action tensor and action index.
         """
         # ========= put your code here ========= #
         pass
         # ====================================== #
 
-    def learn(self, env, max_steps):
+    def learn(self, env, max_steps: int):
         """
-        Train the agent on a single step.
+        Train the agent for one episode.
 
         Args:
-            env: The environment in which the agent interacts.
-            max_steps (int): Maximum number of steps per episode.
-        """
+            env: The environment.
+            max_steps (int): Maximum steps per episode.
 
-        # ===== Initialize trajectory collection variables ===== #
-        # Reset environment to get initial state (tensor)
-        # Track total episode return (float)
-        # Flag to indicate episode termination (boolean)
-        # Step counter (int)
+        Returns:
+            Tuple[float, int]: (episode_return, timestep)
+        """
         # ========= put your code here ========= #
         pass
         # ====================================== #
-    
 
+    # ------------------------------------------------------------------ #
+    # Persistence — linear weights only                                    #
+    # ------------------------------------------------------------------ #
 
+    def save_model(self, path: str, filename: str) -> None:
+        """
+        Save the weight matrix self.w to disk as a .npy file.
 
+        Args:
+            path (str): Directory to save the file.
+            filename (str): File name (e.g., 'linear_q_cartpole.npy').
+        """
+        # ========= put your code here ========= #
+        pass
+        # ====================================== #
 
-    
+    def load_model(self, path: str, filename: str) -> None:
+        """
+        Load the weight matrix self.w from a .npy file.
+
+        Args:
+            path (str): Directory containing the file.
+            filename (str): File name (e.g., 'linear_q_cartpole.npy').
+        """
+        # ========= put your code here ========= #
+        pass
+        # ====================================== #

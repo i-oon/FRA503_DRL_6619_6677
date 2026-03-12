@@ -1,26 +1,23 @@
 from __future__ import annotations
-import numpy as np
-from RL_Algorithm.RL_base_function import BaseAlgorithm
-
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from collections import namedtuple, deque
-import random
-import matplotlib
-import matplotlib.pyplot as plt
+from storage.off_policy import OffPolicyAlgorithm
+
 
 class DQN_network(nn.Module):
     """
     Neural network model for the Deep Q-Network algorithm.
-    
+
     Args:
         n_observations (int): Number of input features.
         hidden_size (int): Number of hidden neurons.
         n_actions (int): Number of possible actions.
         dropout (float): Dropout rate for regularization.
     """
+
     def __init__(self, n_observations, hidden_size, n_actions, dropout):
         super(DQN_network, self).__init__()
         # ========= put your code here ========= #
@@ -30,10 +27,10 @@ class DQN_network(nn.Module):
     def forward(self, x):
         """
         Forward pass through the network.
-        
+
         Args:
             x (Tensor): Input state tensor.
-        
+
         Returns:
             Tensor: Q-value estimates for each action.
         """
@@ -41,10 +38,31 @@ class DQN_network(nn.Module):
         pass
         # ====================================== #
 
-class DQN(BaseAlgorithm):
+
+class DQN(OffPolicyAlgorithm):
+    """
+    Deep Q-Network (DQN) — off-policy, value-based.
+
+    Args:
+        device: Torch device.
+        num_of_action (int): Number of discrete actions.
+        action_range (list): [min, max] for continuous action scaling.
+        n_observations (int): Observation space dimension.
+        hidden_dim (int): Hidden layer width.
+        dropout (float): Dropout rate.
+        learning_rate (float): Adam learning rate.
+        tau (float): Polyak soft-update coefficient for target network.
+        initial_epsilon (float): Starting exploration rate.
+        epsilon_decay (float): Per-step epsilon decay.
+        final_epsilon (float): Minimum exploration rate.
+        discount_factor (float): Discount factor γ.
+        buffer_size (int): Replay buffer capacity.
+        batch_size (int): Mini-batch size per update.
+    """
+
     def __init__(
             self,
-            device = None,
+            device=None,
             num_of_action: int = 2,
             action_range: list = [-2.5, 2.5],
             n_observations: int = 4,
@@ -59,16 +77,6 @@ class DQN(BaseAlgorithm):
             buffer_size: int = 1000,
             batch_size: int = 1,
     ) -> None:
-        """
-        Initialize the CartPole Agent.
-
-        Args:
-            learning_rate (float): The learning rate for updating Q-values.
-            initial_epsilon (float): The initial exploration rate.
-            epsilon_decay (float): The rate at which epsilon decays over time.
-            final_epsilon (float): The final exploration rate.
-            discount_factor (float, optional): The discount factor for future rewards. Defaults to 0.95.
-        """     
 
         # Feel free to add or modify any of the initialized variables above.
         # ========= put your code here ========= #
@@ -76,20 +84,12 @@ class DQN(BaseAlgorithm):
         self.target_net = DQN_network(n_observations, hidden_dim, num_of_action, dropout).to(device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        self.device = device
-        self.steps_done = 0
+        self.device        = device
+        self.steps_done    = 0
         self.num_of_action = num_of_action
-        self.tau = tau
+        self.tau           = tau
 
         self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=learning_rate, amsgrad=True)
-
-        self.episode_durations = []
-        self.buffer_size = buffer_size
-        self.batch_size = batch_size
-
-        # Experiment with different values and configurations to see how they affect the training process.
-        # Remember to document any changes you make and analyze their impact on the agent's performance.
-
         pass
         # ====================================== #
 
@@ -99,28 +99,25 @@ class DQN(BaseAlgorithm):
             learning_rate=learning_rate,
             initial_epsilon=initial_epsilon,
             epsilon_decay=epsilon_decay,
-            final_epsilon=final_epsilon,  
+            final_epsilon=final_epsilon,
             discount_factor=discount_factor,
             buffer_size=buffer_size,
             batch_size=batch_size,
         )
 
-        # set up matplotlib
-        self.is_ipython = 'inline' in matplotlib.get_backend()
-        if self.is_ipython:
-            from IPython import display
-
-        plt.ion()
+    # ------------------------------------------------------------------ #
+    # Core algorithm methods                                               #
+    # ------------------------------------------------------------------ #
 
     def select_action(self, state):
         """
-        Select an action based on an epsilon-greedy policy.
-        
+        Select an action using an epsilon-greedy policy.
+
         Args:
-            state (Tensor): The current state of the environment.
-        
+            state (Tensor): Current state.
+
         Returns:
-            Tensor: The selected action.
+            Tuple[Tensor, int]: Scaled action tensor and action index.
         """
         # ========= put your code here ========= #
         pass
@@ -128,158 +125,105 @@ class DQN(BaseAlgorithm):
 
     def calculate_loss(self, non_final_mask, non_final_next_states, state_batch, action_batch, reward_batch):
         """
-        Computes the loss for policy optimization.
+        Compute the Bellman loss for a sampled mini-batch.
 
         Args:
-            non_final_mask (Tensor): Mask indicating which states are non-final.
-            non_final_next_states (Tensor): The next states that are not terminal.
+            non_final_mask (Tensor): True where next state is not terminal.
+            non_final_next_states (Tensor): Non-terminal next states.
             state_batch (Tensor): Batch of current states.
-            action_batch (Tensor): Batch of actions taken.
-            reward_batch (Tensor): Batch of received rewards.
-        
+            action_batch (Tensor): Batch of action indices.
+            reward_batch (Tensor): Batch of rewards.
+
         Returns:
-            Tensor: Computed loss.
+            Tensor: Scalar Huber / MSE loss.
         """
         # ========= put your code here ========= #
         pass
         # ====================================== #
 
-    def generate_sample(self, batch_size):
+    def generate_sample(self, batch_size=None):
         """
-        Generates a batch sample from memory for training.
+        Sample a mini-batch and unpack it into DQN-ready tensors.
 
         Returns:
-            Tuple: A tuple containing:
-                - non_final_mask (Tensor): A boolean mask indicating which states are non-final.
-                - non_final_next_states (Tensor): The next states that are not terminal.
-                - state_batch (Tensor): The batch of current states.
-                - action_batch (Tensor): The batch of actions taken.
-                - reward_batch (Tensor): The batch of rewards received.
+            Tuple or None:
+                - non_final_mask (Tensor)
+                - non_final_next_states (Tensor)
+                - state_batch (Tensor)
+                - action_batch (Tensor)
+                - reward_batch (Tensor)
+            Returns None if the buffer is not ready.
         """
-        # Ensure there are enough samples in memory before proceeding
         # ========= put your code here ========= #
-        # Sample a batch from memory
-        batch = self.memory.sample()
+        batch = super().generate_sample()
+        if batch is None:
+            return None
         # ====================================== #
-        
-        # Sample a batch from memory
+
+        # Unpack and prepare tensors from the Transition namedtuples
         # ========= put your code here ========= #
         pass
         # ====================================== #
 
     def update_policy(self):
-        """
-        Update the policy using the calculated loss.
-
-        Returns:
-            float: Loss value after the update.
-        """
-        # Generate a sample batch
-        sample = self.generate_sample(self.batch_size)
+        """Perform one gradient step on the policy network."""
+        sample = self.generate_sample()
         if sample is None:
             return
         non_final_mask, non_final_next_states, state_batch, action_batch, reward_batch = sample
-        
-        # Compute loss
         loss = self.calculate_loss(non_final_mask, non_final_next_states, state_batch, action_batch, reward_batch)
 
-        # Perform gradient descent step
         # ========= put your code here ========= #
         pass
         # ====================================== #
 
     def update_target_networks(self):
-        """
-        Soft update of target network weights using Polyak averaging.
-        """
-        # Retrieve the state dictionaries (weights) of both networks
-        # ========= put your code here ========= #
-        pass
-        # ====================================== #
-        
-        # Apply the soft update rule to each parameter in the target network
-        # ========= put your code here ========= #
-        pass
-        # ====================================== #
-        
-        # Load the updated weights into the target network
         # ========= put your code here ========= #
         pass
         # ====================================== #
 
-    def learn(self, env):
+    def learn(self, env, num_agents: int = 1, max_steps: int = 1000):
         """
-        Train the agent on a single step.
+        Train the agent for one episode (single env) or one fixed-length
+        run (parallel envs).
 
         Args:
-            env: The environment to train in.
+            env: The Isaac Lab environment.
+            num_agents (int): Number of parallel environments.
+            max_steps (int): Steps per episode (single) or total env steps (parallel).
+
+        Returns:
+            Tuple[float, int]: (episode_return, timestep)
         """
 
-        # ===== Initialize trajectory collection variables ===== #
-        # Reset environment to get initial state (tensor)
-        # Track total episode return (float)
-        # Flag to indicate episode termination (boolean)
-        # Step counter (int)
         # ========= put your code here ========= #
         pass
         # ====================================== #
 
-        while not done:
-            # Predict action from the policy network
-            # ========= put your code here ========= #
-            pass
-            # ====================================== #
+    # ------------------------------------------------------------------ #
+    # Persistence                                                          #
+    # ------------------------------------------------------------------ #
 
-            # Execute action in the environment and observe next state and reward
-            # ========= put your code here ========= #
-            pass
-            # ====================================== #
+    def save_model(self, path: str, filename: str) -> None:
+        """
+        Save policy network weights.
 
-            # Store the transition in memory
-            # ========= put your code here ========= #
-            pass
-            # ====================================== #
+        Args:
+            path (str): Directory to save.
+            filename (str): File name (e.g., 'dqn_cartpole.pth').
+        """
+        # ========= put your code here ========= #
+        pass
+        # ====================================== #
 
-            # Update state
+    def load_model(self, path: str, filename: str) -> None:
+        """
+        Load policy network weights and sync to target network.
 
-            # Perform one step of the optimization (on the policy network)
-            self.update_policy()
-
-            # Soft update of the target network's weights
-            self.update_weights()
-
-            timestep += 1
-            if done:
-                self.plot_durations(timestep)
-                break
-
-    # Consider modifying this function to visualize other aspects of the training process.
-    # ================================================================================== #
-    def plot_durations(self, timestep=None, show_result=False):
-        if timestep is not None:
-            self.episode_durations.append(timestep)
-
-        plt.figure(1)
-        durations_t = torch.tensor(self.episode_durations, dtype=torch.float)
-        if show_result:
-            plt.title('Result')
-        else:
-            plt.clf()
-            plt.title('Training...')
-        plt.xlabel('Episode')
-        plt.ylabel('Duration')
-        plt.plot(durations_t.numpy())
-        # Take 100 episode averages and plot them too
-        if len(durations_t) >= 100:
-            means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
-            means = torch.cat((torch.zeros(99), means))
-            plt.plot(means.numpy())
-
-        plt.pause(0.001)  # pause a bit so that plots are updated
-        if self.is_ipython:
-            if not show_result:
-                display.display(plt.gcf())
-                display.clear_output(wait=True)
-            else:
-                display.display(plt.gcf())
-    # ================================================================================== #
+        Args:
+            path (str): Directory of saved model.
+            filename (str): File name (e.g., 'dqn_cartpole.pth').
+        """
+        # ========= put your code here ========= #
+        pass
+        # ====================================== #
