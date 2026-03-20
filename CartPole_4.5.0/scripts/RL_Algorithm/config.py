@@ -142,9 +142,10 @@ def print_config():
 
 def create_agent(testing=False):
     """Create an agent instance based on current configuration."""
-    from RL_Algorithm.RL_base import (
-        Q_Learning, SARSA, Double_Q_Learning, Monte_Carlo
-    )
+    from RL_Algorithm.Algorithm.Q_Learning import Q_Learning
+    from RL_Algorithm.Algorithm.SARSA import SARSA  
+    from RL_Algorithm.Algorithm.Double_Q_Learning import Double_Q_Learning
+    from RL_Algorithm.Algorithm.MC import MC as Monte_Carlo
     
     config = get_config()
     
@@ -159,19 +160,27 @@ def create_agent(testing=False):
     if agent_class is None:
         raise ValueError(f"Unknown algorithm: {ALGORITHM}")
     
-    # Create agent with config
+    # Override epsilon for testing
+    if testing:
+        start_epsilon = 0.0
+        epsilon_decay = 1.0
+        final_epsilon = 0.0
+    else:
+        start_epsilon = config['start_epsilon']
+        epsilon_decay = config['epsilon_decay']
+        final_epsilon = config['final_epsilon']
+    
+    # FIXED: Use correct parameter names that match your algorithm classes
     agent = agent_class(
-        task=config['task'],
-        n_episodes=config['n_episodes'],
-        learning_rate=config['learning_rate'],
-        discount_factor=config['discount_factor'],
-        start_epsilon=config['start_epsilon'],
-        epsilon_decay=config['epsilon_decay'],
-        final_epsilon=config['final_epsilon'],
-        discretize_state_weight=config['discretize_state_weight'],
         num_of_action=config['num_of_action'],
         action_range=config['action_range'],
-        testing=testing
+        discretize_state_weight=config['discretize_state_weight'],
+        learning_rate=config['learning_rate'],
+        initial_epsilon=start_epsilon,           # NOT start_epsilon
+        epsilon_decay=epsilon_decay,
+        final_epsilon=final_epsilon,
+        discount_factor=config['discount_factor']
+        # Remove: task, n_episodes, testing - these aren't constructor parameters
     )
     
     return agent

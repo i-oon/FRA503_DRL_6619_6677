@@ -381,6 +381,15 @@ def plot_performance_summary(df, algorithm, save_dir):
     print(f"✓ Saved: {output_path}")
     plt.close()
 
+def calculate_rolling_std(series, window=100):
+    # Uses min_periods=10 (meaningful std calculation)
+    rolling_std = series.rolling(window=window, min_periods=10).std()
+    
+    # Uses expanding std for early episodes (grows from episode 1) 
+    expanding_std = series.expanding().std()
+    
+    # Fills NaN values properly
+    return rolling_std.fillna(expanding_std)
 
 def plot_algorithm_comparison(data_dict, task, save_dir):
     """Compare multiple algorithms with variance shading and raw rewards."""
@@ -397,8 +406,9 @@ def plot_algorithm_comparison(data_dict, task, save_dir):
         episodes = df['episode'].values
         
         # Calculate rolling std for variance
-        reward_std = df['reward'].rolling(window=window).std()
-        length_std = df['length'].rolling(window=window).std()
+        # FIXED - works from episode 1:
+        reward_std = calculate_rolling_std(df['reward'], window).values
+        length_std = calculate_rolling_std(df['length'], window).values
         
         avg_reward = df['avg_reward_100'].values
         avg_length = df['avg_length_100'].values
