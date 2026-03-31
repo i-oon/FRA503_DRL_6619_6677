@@ -9,14 +9,8 @@ class Linear_QN(BaseAlgorithm):
     """
     Linear Q-Learning with function approximation.
 
-    Args:
-        num_of_action (int): Number of discrete actions.
-        action_range (list): [min, max] continuous action range.
-        learning_rate (float): TD weight-update step size.
-        initial_epsilon (float): Starting exploration rate.
-        epsilon_decay (float): Per-step epsilon decay.
-        final_epsilon (float): Minimum exploration rate.
-        discount_factor (float): Discount factor γ.
+    Simple and standard: Q(s,a) = φ(s)^T · w_a
+    Uses only env[0] for learning (single-env Q-learning).
     """
 
     def __init__(
@@ -40,111 +34,93 @@ class Linear_QN(BaseAlgorithm):
             discount_factor=discount_factor,
         )
 
-        # ===== Linear weight matrix ===== #
-        # Shape: (obs_feature_dim, num_of_action)
+        # Linear weight matrix: (obs_dim, num_of_action)
         self.w = np.zeros((4, num_of_action))
 
-    # ------------------------------------------------------------------ #
-    # Linear Q-value estimation                                           #
-    # ------------------------------------------------------------------ #
-
     def q(self, obs, a=None):
-        """
-        Return the linearly-estimated Q-value(s) for a given observation.
+        """Q(s,a) = obs^T · w_a"""
+        if isinstance(obs, torch.Tensor):
+            obs = obs.cpu().numpy()
+        obs = np.asarray(obs, dtype=np.float32).flatten()
+        q_values = obs @ self.w
+        if a is None:
+            return q_values
+        return float(q_values[a])
 
-        Args:
-            obs: State feature vector φ(s), shape (obs_dim,).
-            a (int | None): Action index. If None, returns Q for all actions
-                            as a 1-D array of shape (num_of_action,).
+    def calculate_loss(self, obs, action, reward, next_obs, next_action, terminated):
+        """TD error: δ = r + γ·Q(s',a')·(1-done) - Q(s,a)"""
+        q_current = self.q(obs, action)
+        q_next = self.q(next_obs, next_action)
+        return reward + self.discount_factor * q_next * (1 - int(terminated)) - q_current
 
-        Returns:
-            float | np.ndarray: Q(s, a) scalar, or Q(s, :) array.
-        """
-        # ========= put your code here ========= #
-        pass
-        # ====================================== #
+    def update(self, obs, action, reward, next_obs, next_action, terminated):
+        """Weight update: w_a += α · δ · φ(s)"""
+        if isinstance(obs, torch.Tensor):
+            obs = obs.cpu().numpy()
+        if isinstance(next_obs, torch.Tensor):
+            next_obs = next_obs.cpu().numpy()
+        obs = np.asarray(obs, dtype=np.float32).flatten()
+        next_obs = np.asarray(next_obs, dtype=np.float32).flatten()
 
-    # ------------------------------------------------------------------ #
-    # Core algorithm methods                                               #
-    # ------------------------------------------------------------------ #
-
-    def update(
-        self,
-        obs,
-        action: int,
-        reward: float,
-        next_obs,
-        next_action: int,
-        terminated: bool,
-    ):
-        """
-        Update the weight vector using the TD error.
-
-        Args:
-            obs: Current state feature vector φ(s).
-            action (int): Action index taken in state s.
-            reward (float): Reward received.
-            next_obs: Next state feature vector φ(s').
-            next_action (int): Next action taken (for SARSA-style update).
-            terminated (bool): True if the episode ended.
-        """
-        # ========= put your code here ========= #
-        pass
-        # ====================================== #
+        td_error = self.calculate_loss(obs, action, reward, next_obs, next_action, terminated)
+        self.w[:, action] += self.lr * td_error * obs
 
     def select_action(self, state):
-        """
-        Select an action using an epsilon-greedy policy over Q(s, :).
+        """Epsilon-greedy action selection."""
+        if isinstance(state, torch.Tensor):
+            state = state.cpu().numpy()
+        state = np.asarray(state, dtype=np.float32).flatten()
 
-        Args:
-            state: Current state feature vector φ(s).
+        if np.random.random() < self.epsilon:
+            action_idx = np.random.randint(0, self.num_of_action)
+        else:
+            action_idx = int(np.argmax(self.q(state)))
 
-        Returns:
-            Tuple[Tensor, int]: Scaled continuous action tensor and action index.
-        """
-        # ========= put your code here ========= #
-        pass
-        # ====================================== #
+        return self.scale_action(action_idx), action_idx
 
     def learn(self, env, max_steps: int):
-        """
-        Train the agent for one episode.
+        """Train for one episode using env[0] only."""
+        obs, _ = env.reset()
+        episode_return = 0.0
+        num_envs = obs["policy"].shape[0]
 
-        Args:
-            env: The environment.
-            max_steps (int): Maximum steps per episode.
+        state = obs["policy"][0].cpu().numpy()
+        action_tensor, action_idx = self.select_action(state)
 
-        Returns:
-            Tuple[float, int]: (episode_return, timestep)
-        """
-        # ========= put your code here ========= #
-        pass
-        # ====================================== #
+        for step in range(max_steps):
+            action_batched = action_tensor.unsqueeze(0).unsqueeze(0).repeat(num_envs, 1)
 
-    # ------------------------------------------------------------------ #
-    # Persistence — linear weights only                                    #
-    # ------------------------------------------------------------------ #
+            next_obs, reward, terminated, truncated, _ = env.step(action_batched)
+
+            next_state = next_obs["policy"][0].cpu().numpy()
+            r = float(reward[0].item())
+            t = bool(terminated[0].item())
+            done = bool((terminated[0] | truncated[0]).item())
+
+            # SARSA: choose next action before updating
+            next_action_tensor, next_action_idx = self.select_action(next_state)
+
+            self.update(state, action_idx, r, next_state, next_action_idx, t)
+            self.decay_epsilon()
+
+            episode_return += r
+            state = next_state
+            action_tensor = next_action_tensor
+            action_idx = next_action_idx
+
+            if done:
+                break
+
+        self.episode_durations.append(episode_return)
+        return episode_return, step + 1
 
     def save_model(self, path: str, filename: str) -> None:
-        """
-        Save the weight matrix self.w to disk as a .npy file.
-
-        Args:
-            path (str): Directory to save the file.
-            filename (str): File name (e.g., 'linear_q_cartpole.npy').
-        """
-        # ========= put your code here ========= #
-        pass
-        # ====================================== #
+        os.makedirs(path, exist_ok=True)
+        filepath = os.path.join(path, filename)
+        np.save(filepath, self.w)
+        print(f"✅ Linear_Q model saved to {filepath}")
 
     def load_model(self, path: str, filename: str) -> None:
-        """
-        Load the weight matrix self.w from a .npy file.
-
-        Args:
-            path (str): Directory containing the file.
-            filename (str): File name (e.g., 'linear_q_cartpole.npy').
-        """
-        # ========= put your code here ========= #
-        pass
-        # ====================================== #
+        filepath = os.path.join(path, filename)
+        self.w = np.load(filepath)
+        print(f"✅ Linear_Q model loaded from {filepath}")

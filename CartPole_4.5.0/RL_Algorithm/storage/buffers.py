@@ -1,6 +1,6 @@
 from __future__ import annotations
 import random
-from collections import deque, namedtuple
+from collections import namedtuple
 from collections.abc import Generator
 
 import torch
@@ -215,17 +215,10 @@ _Transition = namedtuple("Transition", ("state", "action", "reward", "next_state
 
 class ReplayBuffer:
     """
-    Fixed-size FIFO experience replay buffer for off-policy algorithms (DQN).
+    Fixed-size circular experience replay buffer for off-policy algorithms (SAC, TD3).
 
-    Stores ``(state, action, reward, next_state, done)`` transitions from any
-    past version of the policy.  Random sampling breaks temporal correlation
-    and stabilises neural network training.
-
-    Unlike ``RolloutBuffer``, transitions here are **never discarded after an
-    update** — the buffer keeps accumulating until it reaches ``buffer_size``,
-    at which point the oldest entries are overwritten.  This is valid for
-    off-policy algorithms because the Bellman target is re-evaluated using the
-    *current* network at training time, making stale data still useful.
+    Uses a plain Python list instead of a deque so that ``random.sample``
+    gets O(1) index access rather than the O(n) access cost of a deque.
 
     Args:
         buffer_size (int): Maximum number of transitions to store.
@@ -233,8 +226,10 @@ class ReplayBuffer:
     """
 
     def __init__(self, buffer_size: int, batch_size: int = 1) -> None:
-        self.memory     = deque(maxlen=buffer_size)
-        self.batch_size = batch_size
+        self._data       = []           # list for O(1) random access
+        self._ptr        = 0            # circular write pointer
+        self._max_size   = buffer_size
+        self.batch_size  = batch_size
 
     def add(
         self,
@@ -244,39 +239,102 @@ class ReplayBuffer:
         next_state,
         done: bool,
     ) -> None:
-        """
-        Add one transition to the buffer.
-
-        If the buffer is at capacity the oldest transition is silently dropped.
-
-        Args:
-            state:      Current state observation.
-            action:     Action taken.
-            reward:     Scalar reward received.
-            next_state: Resulting next state.
-            done (bool): True if the episode terminated after this step.
-        """
-        self.memory.append(_Transition(state, action, reward, next_state, done))
+        t = _Transition(state, action, reward, next_state, done)
+        if len(self._data) < self._max_size:
+            self._data.append(t)
+        else:
+            self._data[self._ptr] = t
+        self._ptr = (self._ptr + 1) % self._max_size
 
     def sample(self) -> list[_Transition] | None:
-        """
-        Sample a random mini-batch from the buffer.
-
-        Returns ``None`` when the buffer contains fewer transitions than
-        ``batch_size`` so callers can skip the update safely.
-
-        Returns:
-            list[Transition] | None: ``batch_size`` randomly drawn
-            Transition named-tuples, or None if not enough data yet.
-        """
-        if len(self.memory) < self.batch_size:
+        if len(self._data) < self.batch_size:
             return None
-        return random.sample(self.memory, self.batch_size)
+        return random.sample(self._data, self.batch_size)
 
     def is_ready(self) -> bool:
-        """Return True once the buffer holds at least ``batch_size`` entries."""
-        return len(self.memory) >= self.batch_size
+        return len(self._data) >= self.batch_size
 
     def __len__(self) -> int:
-        """Current number of stored transitions."""
-        return len(self.memory)
+        return len(self._data)
+
+
+# ============================================================ #
+# ================ TENSOR REPLAY BUFFER (DQN) ================ #
+# ============================================================ #
+
+class TensorReplayBuffer:
+    """
+    Pre-allocated GPU tensor replay buffer for DQN.
+
+    All data lives on the target device as contiguous tensors.
+    Batch writes and sampling are fully vectorized — no Python
+    loops, no CPU↔GPU copies, no ``torch.cat`` on small slices.
+
+    Args:
+        buffer_size (int): Maximum number of transitions.
+        obs_dim (int): Observation space dimension.
+        device: Torch device for all tensors.
+        action_dim (int): Action dimension (1 for DQN's scalar index).
+    """
+
+    def __init__(
+        self,
+        buffer_size: int,
+        obs_dim: int,
+        device,
+        action_dim: int = 1,
+    ) -> None:
+        self.buffer_size = buffer_size
+        self.device      = device
+        self._ptr        = 0
+        self._size       = 0
+
+        self.states      = torch.zeros(buffer_size, obs_dim,    device=device)
+        self.actions     = torch.zeros(buffer_size, action_dim, device=device, dtype=torch.long)
+        self.rewards     = torch.zeros(buffer_size, 1,          device=device)
+        self.next_states = torch.zeros(buffer_size, obs_dim,    device=device)
+        self.dones       = torch.zeros(buffer_size, 1,          device=device)
+
+    def add_batch(
+        self,
+        states:      torch.Tensor,
+        actions:     torch.Tensor,
+        rewards:     torch.Tensor,
+        next_states: torch.Tensor,
+        dones:       torch.Tensor,
+    ) -> None:
+        """Write N transitions in one vectorized operation."""
+        N    = states.shape[0]
+        idxs = torch.arange(self._ptr, self._ptr + N, device=self.device) % self.buffer_size
+        self.states[idxs]      = states.detach()
+        self.actions[idxs]     = actions.detach()
+        self.rewards[idxs]     = rewards.detach()
+        self.next_states[idxs] = next_states.detach()
+        self.dones[idxs]       = dones.detach()
+        self._ptr  = int((self._ptr + N) % self.buffer_size)
+        self._size = min(self._size + N, self.buffer_size)
+
+    def sample(self, batch_size: int):
+        """Return a random mini-batch as a tuple of tensors (all on device)."""
+        if self._size < batch_size:
+            return None
+        idxs = torch.randint(0, self._size, (batch_size,), device=self.device)
+        return (
+            self.states[idxs],
+            self.actions[idxs],
+            self.rewards[idxs],
+            self.next_states[idxs],
+            self.dones[idxs],
+        )
+
+    def add(self, *args, **kwargs):
+        raise NotImplementedError(
+            "TensorReplayBuffer does not support single-transition add(). "
+            "Use add_batch() to write all parallel-env transitions at once."
+        )
+
+    def is_ready(self, batch_size: int = 1) -> bool:
+        return self._size >= batch_size
+
+    def __len__(self) -> int:
+        return self._size

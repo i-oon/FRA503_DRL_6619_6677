@@ -35,11 +35,8 @@ def swing_up(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     cart_pos = asset.data.joint_pos[:, [0]]
     pole_joint_pos = wrap_to_pi(asset.data.joint_pos[:, [1]]) # wrap the joint positions to (-pi, pi)
     
-    cart_reward = math.cos(cart_pos * math.pi / 4.8)
-    pole_reward = (math.cos(pole_joint_pos) + 1) / 2.0
+    cart_reward = torch.cos(cart_pos * math.pi / 4.8)
+    pole_reward = (torch.cos(pole_joint_pos) + 1) / 2.0
     reward = cart_reward * pole_reward
 
-    reward_tensor = torch.tensor([reward], device='cuda:0')
-
-    # print(reward_tensor)
-    return reward_tensor
+    return reward.squeeze(-1)
