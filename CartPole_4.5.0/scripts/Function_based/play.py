@@ -74,45 +74,51 @@ def play_episode(env, agent, max_steps=1000, render=False):
     obs, _ = env.reset()
     episode_return = 0.0
     episode_length = 0
-    
+    pole_angles = []
+    pole_angle_vels = []
+
     for step in range(max_steps):
         # Get observation for policy
         obs_tensor = obs["policy"]
-        
+
+        # Log pole angle (index 2) and pole angular velocity (index 3)
+        pole_angles.append(float(obs_tensor[0, 2].item()))
+        pole_angle_vels.append(float(obs_tensor[0, 3].item()))
+
         # Select action (deterministic for testing)
         with torch.no_grad():
             action = agent.select_action(obs_tensor[0:1])
-            
+
             # Handle different return types
             if isinstance(action, tuple):
                 action = action[0]  # (action_tensor, action_idx)
-            
+
             # Ensure action is a tensor
             if not isinstance(action, torch.Tensor):
                 action = torch.tensor(action, dtype=torch.float32)
-            
+
             # Add batch dimension if needed
             if action.dim() == 0:
                 action = action.unsqueeze(0)
-            
+
             # Repeat for all environments
             num_envs = obs_tensor.shape[0]
             action_batched = action.unsqueeze(0).repeat(num_envs, 1).to(obs_tensor.device)
-        
+
         # Step environment
         next_obs, reward, terminated, truncated, _ = env.step(action_batched)
-        
+
         # Accumulate return (first environment only for single-env testing)
         episode_return += float(reward[0].item())
         episode_length += 1
-        
+
         # Check if done (first environment)
         if terminated[0] or truncated[0]:
             break
-        
+
         obs = next_obs
-    
-    return episode_return, episode_length
+
+    return episode_return, episode_length, pole_angles, pole_angle_vels
 
 
 def evaluate_agent(env, agent, n_episodes=10, max_steps=1000):
@@ -134,11 +140,15 @@ def evaluate_agent(env, agent, n_episodes=10, max_steps=1000):
     
     returns = []
     lengths = []
-    
+    all_pole_angles = []
+    all_pole_angle_vels = []
+
     for episode in tqdm(range(n_episodes), desc="Evaluating"):
-        episode_return, episode_length = play_episode(env, agent, max_steps)
+        episode_return, episode_length, pole_angles, pole_angle_vels = play_episode(env, agent, max_steps)
         returns.append(episode_return)
         lengths.append(episode_length)
+        all_pole_angles.extend(pole_angles)
+        all_pole_angle_vels.extend(pole_angle_vels)
         
         print(f"  Episode {episode + 1}/{n_episodes}: "
               f"Return = {episode_return:.2f}, Length = {episode_length}")
@@ -149,6 +159,12 @@ def evaluate_agent(env, agent, n_episodes=10, max_steps=1000):
     max_length = 1000  # env max episode length
     success_count = int(np.sum(lng >= max_length))
     success_rate = success_count / len(lng) * 100
+
+    # Pole angle statistics (in radians)
+    angles = np.array(all_pole_angles, dtype=np.float64)
+    angles_deg = np.degrees(angles)
+    ang_vels = np.array(all_pole_angle_vels, dtype=np.float64)
+    ang_vels_deg = np.degrees(ang_vels)
 
     stats = {
         'mean_return': float(np.mean(ret)),
@@ -161,6 +177,12 @@ def evaluate_agent(env, agent, n_episodes=10, max_steps=1000):
         'success_rate': success_rate,
         'success_count': success_count,
         'n_episodes': len(ret),
+        'pole_angle_mean': float(np.mean(np.abs(angles_deg))),
+        'pole_angle_std': float(np.std(angles_deg)),
+        'pole_angle_max': float(np.max(np.abs(angles_deg))),
+        'pole_ang_vel_mean': float(np.mean(np.abs(ang_vels_deg))),
+        'pole_ang_vel_std': float(np.std(ang_vels_deg)),
+        'pole_ang_vel_max': float(np.max(np.abs(ang_vels_deg))),
     }
 
     W = 80
@@ -172,6 +194,8 @@ def evaluate_agent(env, agent, n_episodes=10, max_steps=1000):
     print(f"  Min / Max       : {stats['min_return']:.2f} / {stats['max_return']:.2f}")
     print(f"  Mean Length     : {stats['mean_length']:.1f} +/- {stats['std_length']:.1f}")
     print(f"  Success Rate    : {success_count}/{len(lng)} ({success_rate:.0f}%)  (survived {max_length} steps)")
+    print(f"  Pole Angle (deg): mean |{stats['pole_angle_mean']:.2f}|  std {stats['pole_angle_std']:.2f}  max |{stats['pole_angle_max']:.2f}|")
+    print(f"  Pole Vel (deg/s): mean |{stats['pole_ang_vel_mean']:.2f}|  std {stats['pole_ang_vel_std']:.2f}  max |{stats['pole_ang_vel_max']:.2f}|")
     print(f"{'='*W}\n")
 
     return stats
@@ -247,6 +271,9 @@ def main():
         model_dir = os.path.dirname(args_cli.model_path)
         model_file = os.path.basename(args_cli.model_path)
         agent.load_model(model_dir, model_file)
+        # Force epsilon=0 for deterministic play (load_model may restore training epsilon)
+        if hasattr(agent, 'epsilon'):
+            agent.epsilon = 0.0
         print(f"✅ Model loaded successfully")
     except Exception as e:
         print(f"❌ Error loading model: {e}")
